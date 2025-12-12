@@ -1,0 +1,107 @@
+name: Setup Supabase Tables
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup-database:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup PostgreSQL client
+        run: sudo apt-get install -y postgresql-client
+
+      - name: Create tables
+        env:
+          DATABASE_URL: postgresql://postgres:NjTxoP5TTslsQOvg@db.mjbkbaypssfqkufycetd.supabase.co:5432/postgres
+        run: |
+          psql "$DATABASE_URL" << 'EOSQL'
+          -- 1. PROFILES TABLE
+          CREATE TABLE IF NOT EXISTS profiles (
+            id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
+            username TEXT UNIQUE NOT NULL,
+            email TEXT,
+            avatar_url TEXT,
+            ranking JSONB DEFAULT '{"points": 1000, "tier": "Bronze", "winStreak": 0, "bestWinStreak": 0}'::jsonb,
+            stats JSONB DEFAULT '{"gamesPlayed": 0, "gamesWon": 0, "gamesLost": 0, "criminalGames": 0, "criminalWins": 0, "totalCoinsCollected": 0, "totalEscapes": 0, "copGames": 0, "copWins": 0, "totalCatches": 0}'::jsonb,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+          );
+
+          -- 2. GAME HISTORY TABLE
+          CREATE TABLE IF NOT EXISTS game_history (
+            id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+            room_id TEXT,
+            cop_id UUID REFERENCES profiles(id),
+            criminal_id UUID REFERENCES profiles(id),
+            winner_id UUID REFERENCES profiles(id),
+            winner_role TEXT CHECK (winner_role IN ('cop', 'criminal')),
+            map_name TEXT,
+            duration_seconds INTEGER,
+            cop_points_change INTEGER DEFAULT 0,
+            criminal_points_change INTEGER DEFAULT 0,
+            game_data JSONB DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+          );
+
+          -- 3. ROOMS TABLE
+          CREATE TABLE IF NOT EXISTS rooms (
+            id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+            name TEXT NOT NULL,
+            host_id UUID REFERENCES profiles(id),
+            map_name TEXT DEFAULT 'classic',
+            is_private BOOLEAN DEFAULT FALSE,
+            password TEXT,
+            status TEXT DEFAULT 'waiting' CHECK (status IN ('waiting', 'playing', 'finished')),
+            max_players INTEGER DEFAULT 2,
+            players JSONB DEFAULT '[]'::jsonb,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+          );
+
+          -- Enable RLS
+          ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE game_history ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE rooms ENABLE ROW LEVEL SECURITY;
+
+          -- Policies for profiles
+          DROP POLICY IF EXISTS "Profiles viewable by everyone" ON profiles;
+          CREATE POLICY "Profiles viewable by everyone" ON profiles FOR SELECT USING (true);
+          DROP POLICY IF EXISTS "Users can insert own profile" ON profiles;
+          CREATE POLICY "Users can insert own profile" ON profiles FOR INSERT WITH CHECK (auth.uid() = id);
+          DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
+          CREATE POLICY "Users can update own profile" ON profiles FOR UPDATE USING (auth.uid() = id);
+
+          -- Policies for game_history
+          DROP POLICY IF EXISTS "Game history viewable by everyone" ON game_history;
+          CREATE POLICY "Game history viewable by everyone" ON game_history FOR SELECT USING (true);
+          DROP POLICY IF EXISTS "Auth users can insert game history" ON game_history;
+          CREATE POLICY "Auth users can insert game history" ON game_history FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+
+          -- Policies for rooms
+          DROP POLICY IF EXISTS "Rooms viewable by everyone" ON rooms;
+          CREATE POLICY "Rooms viewable by everyone" ON rooms FOR SELECT USING (true);
+          DROP POLICY IF EXISTS "Auth users can create rooms" ON rooms;
+          CREATE POLICY "Auth users can create rooms" ON rooms FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+          DROP POLICY IF EXISTS "Host can update room" ON rooms;
+          CREATE POLICY "Host can update room" ON rooms FOR UPDATE USING (auth.uid() = host_id);
+          DROP POLICY IF EXISTS "Host can delete room" ON rooms;
+          CREATE POLICY "Host can delete room" ON rooms FOR DELETE USING (auth.uid() = host_id);
+
+          -- Auto-create profile on signup
+          CREATE OR REPLACE FUNCTION handle_new_user()
+          RETURNS TRIGGER AS $$
+          BEGIN
+            INSERT INTO public.profiles (id, username, email)
+            VALUES (NEW.id, COALESCE(NEW.raw_user_meta_data->>'username', split_part(NEW.email, '@', 1)), NEW.email)
+            ON CONFLICT (id) DO NOTHING;
+            RETURN NEW;
+          END;
+          $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+          DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+          CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users
+            FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+
+          -- Verify
+          SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';
+          EOSQL
