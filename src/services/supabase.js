@@ -66,23 +66,13 @@ export const supabaseAuth = {
     // Check if identifier is email or username
     let email = identifier;
     if (!identifier.includes('@')) {
-      // It's a username, try to find the email from profiles table
-      try {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('email')
-          .eq('username', identifier)
-          .single();
-        
-        if (profile) {
-          email = profile.email;
-        } else {
-          throw new Error('User not found');
-        }
-      } catch (err) {
-        // If profiles table doesn't exist, user must use email to sign in
-        throw new Error('Please sign in with your email address');
-      }
+      // It's a username - append default email domain or ask for email
+      // Since we can't query profiles before auth (RLS), we need a workaround
+      // Option 1: User must use email to login
+      // Option 2: Try common email pattern
+      
+      // For now, require email for login
+      throw new Error('Please sign in with your email address');
     }
     
     const { data, error } = await supabase.auth.signInWithPassword({

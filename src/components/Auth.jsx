@@ -30,7 +30,8 @@ function Auth({ onLoginSuccess, onPlayLocal }) {
         }
         await authService.register(username, email, password);
       } else {
-        await authService.login(username, password);
+        // Login uses email
+        await authService.login(email, password);
       }
       
       onLoginSuccess(authService.getUser());
@@ -63,35 +64,35 @@ function Auth({ onLoginSuccess, onPlayLocal }) {
         </div>
 
         <form onSubmit={handleSubmit} autoComplete="on">
-          <div className="form-group">
-            <label>Username</label>
-            <input
-              type="text"
-              name="username"
-              autoComplete="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Enter username"
-              required
-              minLength={3}
-              maxLength={20}
-            />
-          </div>
-
           {mode === 'register' && (
             <div className="form-group">
-              <label>Email</label>
+              <label>Username</label>
               <input
-                type="email"
-                name="email"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Enter email"
+                type="text"
+                name="username"
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Choose a username"
                 required
+                minLength={3}
+                maxLength={20}
               />
             </div>
           )}
+
+          <div className="form-group">
+            <label>Email</label>
+            <input
+              type="email"
+              name="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Enter your email"
+              required
+            />
+          </div>
 
           <div className="form-group">
             <label>Password</label>
