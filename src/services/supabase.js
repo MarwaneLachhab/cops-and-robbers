@@ -108,12 +108,12 @@ export const supabaseAuth = {
     // Try to get profile data (may not exist)
     let profile = null;
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', user.id)
-        .single();
-      profile = data;
+        .maybeSingle();
+      if (!error) profile = data;
     } catch (err) {
       console.warn('Could not fetch profile:', err.message);
     }

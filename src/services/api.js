@@ -83,7 +83,7 @@ class ApiService {
           .from('profiles')
           .select('*')
           .eq('username', username)
-          .single();
+          .maybeSingle();
         if (error) return null;
         return data;
       } catch (e) {
@@ -108,7 +108,7 @@ class ApiService {
           .from('profiles')
           .select('stats, ranking')
           .eq('username', username)
-          .single();
+          .maybeSingle();
         if (error) return null;
         return data;
       } catch (e) {
@@ -217,7 +217,7 @@ class ApiService {
           .from('profiles')
           .select('ranking')
           .eq('username', username)
-          .single();
+          .maybeSingle();
         
         if (!user) return { rank: 0 };
         
