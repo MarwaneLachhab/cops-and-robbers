@@ -36,20 +36,24 @@ export const supabaseAuth = {
     
     if (error) throw error;
     
-    // Create user profile in database
+    // Try to create user profile in database (may fail if table doesn't exist)
     if (data.user) {
-      await supabase.from('profiles').upsert({
-        id: data.user.id,
-        username,
-        email,
-        ranking: { points: 1000, tier: 'Bronze', winStreak: 0, bestWinStreak: 0 },
-        stats: {
-          gamesPlayed: 0, gamesWon: 0, gamesLost: 0,
-          criminalGames: 0, criminalWins: 0, totalCoinsCollected: 0, totalEscapes: 0,
-          copGames: 0, copWins: 0, totalCatches: 0
-        },
-        created_at: new Date().toISOString()
-      });
+      try {
+        await supabase.from('profiles').upsert({
+          id: data.user.id,
+          username,
+          email,
+          ranking: { points: 1000, tier: 'Bronze', winStreak: 0, bestWinStreak: 0 },
+          stats: {
+            gamesPlayed: 0, gamesWon: 0, gamesLost: 0,
+            criminalGames: 0, criminalWins: 0, totalCoinsCollected: 0, totalEscapes: 0,
+            copGames: 0, copWins: 0, totalCatches: 0
+          },
+          created_at: new Date().toISOString()
+        });
+      } catch (profileError) {
+        console.warn('Could not create profile (table may not exist):', profileError.message);
+      }
     }
     
     return data;
@@ -62,17 +66,22 @@ export const supabaseAuth = {
     // Check if identifier is email or username
     let email = identifier;
     if (!identifier.includes('@')) {
-      // It's a username, find the email
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('email')
-        .eq('username', identifier)
-        .single();
-      
-      if (profile) {
-        email = profile.email;
-      } else {
-        throw new Error('User not found');
+      // It's a username, try to find the email from profiles table
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('email')
+          .eq('username', identifier)
+          .single();
+        
+        if (profile) {
+          email = profile.email;
+        } else {
+          throw new Error('User not found');
+        }
+      } catch (err) {
+        // If profiles table doesn't exist, user must use email to sign in
+        throw new Error('Please sign in with your email address');
       }
     }
     
@@ -106,17 +115,25 @@ export const supabaseAuth = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
 
-    // Get profile data
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
+    // Try to get profile data (may not exist)
+    let profile = null;
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+      profile = data;
+    } catch (err) {
+      console.warn('Could not fetch profile:', err.message);
+    }
 
     return {
       id: user.id,
       email: user.email,
-      username: profile?.username || user.user_metadata?.username,
+      username: profile?.username || user.user_metadata?.username || user.email?.split('@')[0],
+      ranking: profile?.ranking || { points: 1000, tier: 'Bronze', winStreak: 0, bestWinStreak: 0 },
+      stats: profile?.stats || { gamesPlayed: 0, gamesWon: 0, gamesLost: 0 },
       ...profile
     };
   },
@@ -125,27 +142,37 @@ export const supabaseAuth = {
   async updateProfile(userId, updates) {
     if (!supabase) throw new Error('Supabase not configured');
     
-    const { data, error } = await supabase
-      .from('profiles')
-      .update(updates)
-      .eq('id', userId);
-    
-    if (error) throw error;
-    return data;
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .update(updates)
+        .eq('id', userId);
+      
+      if (error) throw error;
+      return data;
+    } catch (err) {
+      console.warn('Could not update profile:', err.message);
+      return null;
+    }
   },
 
   // Get leaderboard
   async getLeaderboard(limit = 50) {
     if (!supabase) return [];
     
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id, username, ranking, stats')
-      .order('ranking->points', { ascending: false })
-      .limit(limit);
-    
-    if (error) throw error;
-    return data || [];
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, username, ranking, stats')
+        .order('ranking->points', { ascending: false })
+        .limit(limit);
+      
+      if (error) throw error;
+      return data || [];
+    } catch (err) {
+      console.warn('Could not fetch leaderboard:', err.message);
+      return [];
+    }
   },
 
   // Listen for auth changes
