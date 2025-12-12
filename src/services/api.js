@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const IS_PRODUCTION = import.meta.env.PROD;
 const USE_SUPABASE = !!supabase;
 
 class ApiService {
@@ -19,8 +20,9 @@ class ApiService {
     this.token = token;
   }
 
-  // Rooms - these still use the socket server when available
+  // Rooms - these still use the socket server when available (only in dev)
   async getRooms() {
+    if (IS_PRODUCTION) return []; // No backend in production yet
     try {
       const response = await fetch(`${API_URL}/rooms`, {
         headers: this.getHeaders()
@@ -33,6 +35,7 @@ class ApiService {
   }
 
   async createRoom(name, map, isPrivate, password) {
+    if (IS_PRODUCTION) return { error: 'Online rooms coming soon!' };
     try {
       const response = await fetch(`${API_URL}/rooms/create`, {
         method: 'POST',
@@ -46,6 +49,7 @@ class ApiService {
   }
 
   async joinRoom(roomId, password) {
+    if (IS_PRODUCTION) return { error: 'Online rooms coming soon!' };
     try {
       const response = await fetch(`${API_URL}/rooms/${roomId}/join`, {
         method: 'POST',
@@ -59,6 +63,7 @@ class ApiService {
   }
 
   async leaveRoom(roomId) {
+    if (IS_PRODUCTION) return { error: 'Server unavailable' };
     try {
       const response = await fetch(`${API_URL}/rooms/${roomId}/leave`, {
         method: 'POST',
@@ -148,8 +153,13 @@ class ApiService {
 
   // Leaderboard
   async getLeaderboard(limit = 50, offset = 0, sortBy = 'points') {
-    if (USE_SUPABASE) {
+    // Always use Supabase in production or when available
+    if (USE_SUPABASE || IS_PRODUCTION) {
       try {
+        if (!supabase) {
+          console.log('Supabase not configured');
+          return { leaderboard: [] };
+        }
         const { data, error } = await supabase
           .from('profiles')
           .select('id, username, ranking, stats')
@@ -181,17 +191,22 @@ class ApiService {
       }
     }
 
-    try {
-      const response = await fetch(
-        `${API_URL}/leaderboard?limit=${limit}&offset=${offset}&sortBy=${sortBy}`,
-        { headers: this.getHeaders() }
-      );
-      if (!response.ok) return { leaderboard: [] };
-      return response.json();
-    } catch (e) {
-      console.log('Could not load leaderboard');
-      return { leaderboard: [] };
+    // Only use localhost API in development
+    if (!IS_PRODUCTION) {
+      try {
+        const response = await fetch(
+          `${API_URL}/leaderboard?limit=${limit}&offset=${offset}&sortBy=${sortBy}`,
+          { headers: this.getHeaders() }
+        );
+        if (!response.ok) return { leaderboard: [] };
+        return response.json();
+      } catch (e) {
+        console.log('Could not load leaderboard');
+        return { leaderboard: [] };
+      }
     }
+    
+    return { leaderboard: [] };
   }
 
   async getUserRank(username) {
