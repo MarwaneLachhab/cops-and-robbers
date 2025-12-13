@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import socketService from '../services/socket';
 import apiService from '../services/api';
+import Social from './Social';
 import './Lobby.css';
 
 function Lobby({ user, onJoinRoom, onCreateRoom, onLogout, onPlayLocal }) {
@@ -16,6 +17,7 @@ function Lobby({ user, onJoinRoom, onCreateRoom, onLogout, onPlayLocal }) {
   const [joiningRoomId, setJoiningRoomId] = useState(null);
   const [activeTab, setActiveTab] = useState('rooms');
   const [loading, setLoading] = useState(true);
+  const [showSocial, setShowSocial] = useState(false);
 
   useEffect(() => {
     // Set up socket listeners
@@ -133,6 +135,7 @@ function Lobby({ user, onJoinRoom, onCreateRoom, onLogout, onPlayLocal }) {
             </span>
             <span className="points">{user?.ranking?.points || 1000} pts</span>
           </div>
+          <button className="social-btn" onClick={() => setShowSocial(true)}>👥 Friends</button>
           <button className="logout-btn" onClick={onLogout}>🚪 Logout</button>
         </div>
       </header>
@@ -373,6 +376,11 @@ function Lobby({ user, onJoinRoom, onCreateRoom, onLogout, onPlayLocal }) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Social/Friends Modal */}
+      {showSocial && (
+        <Social user={user} onClose={() => setShowSocial(false)} />
       )}
     </div>
   );

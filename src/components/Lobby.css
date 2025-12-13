@@ -53,6 +53,22 @@
   font-weight: bold;
 }
 
+.social-btn {
+  padding: 10px 20px;
+  background: rgba(68, 136, 255, 0.2);
+  border: 2px solid #4488ff;
+  border-radius: 10px;
+  color: #66aaff;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: bold;
+}
+
+.social-btn:hover {
+  background: rgba(68, 136, 255, 0.4);
+  transform: scale(1.05);
+}
+
 .logout-btn {
   padding: 10px 20px;
   background: rgba(255, 68, 68, 0.2);
