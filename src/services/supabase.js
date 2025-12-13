@@ -30,11 +30,18 @@ export const supabaseAuth = {
         data: {
           username,
           display_name: username
-        }
+        },
+        emailRedirectTo: window.location.origin
       }
     });
     
     if (error) throw error;
+    
+    // Check if email confirmation is required
+    if (data.user && !data.session) {
+      // Email confirmation is enabled - user needs to verify email
+      throw new Error('Please check your email to confirm your account before logging in!');
+    }
     
     // Try to create user profile in database (may fail if table doesn't exist)
     if (data.user) {
