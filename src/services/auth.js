@@ -39,8 +39,11 @@ class AuthService {
             }
           };
           
-          this.setAuth(data.session?.access_token || '', user);
-          return { user, token: data.session?.access_token };
+          // Save token if session exists
+          const token = data.session?.access_token || '';
+          console.log('Register - saving auth, token exists:', !!token);
+          this.setAuth(token, user);
+          return { user, token };
         }
         throw new Error('Registration failed');
       } catch (error) {

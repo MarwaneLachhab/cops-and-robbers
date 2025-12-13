@@ -5,6 +5,7 @@ import Lobby from './components/Lobby';
 import OnlineGame from './components/OnlineGame';
 import authService from './services/auth';
 import socketService from './services/socket';
+import { supabase } from './services/supabase';
 import './App.css';
 
 // App states
@@ -24,28 +25,62 @@ function App() {
   // Check for existing session on mount
   useEffect(() => {
     const checkAuth = async () => {
-      const token = localStorage.getItem('token');
-      if (token) {
-        try {
+      try {
+        // First check Supabase session directly
+        if (supabase) {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            const userData = await authService.getProfile();
+            if (userData) {
+              setUser(userData);
+              setScreen(SCREENS.LOBBY);
+              socketService.connect(session.access_token);
+              setLoading(false);
+              return;
+            }
+          }
+        }
+        
+        // Fallback to localStorage token
+        const token = localStorage.getItem('token');
+        if (token) {
           const userData = await authService.getProfile();
           if (userData) {
             setUser(userData);
             setScreen(SCREENS.LOBBY);
             socketService.connect(token);
           } else {
-            // No valid user data, stay on auth screen
             localStorage.removeItem('token');
           }
-        } catch (error) {
-          console.log('Session expired');
-          localStorage.removeItem('token');
-          // Stay on AUTH screen (default)
         }
+      } catch (error) {
+        console.log('Session check error:', error);
+        localStorage.removeItem('token');
       }
       setLoading(false);
     };
 
     checkAuth();
+    
+    // Listen for Supabase auth changes
+    if (supabase) {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+        console.log('Auth state changed:', event);
+        if (event === 'SIGNED_IN' && session) {
+          const userData = await authService.getProfile();
+          if (userData) {
+            setUser(userData);
+            setScreen(SCREENS.LOBBY);
+            socketService.connect(session.access_token);
+          }
+        } else if (event === 'SIGNED_OUT') {
+          setUser(null);
+          setScreen(SCREENS.AUTH);
+        }
+      });
+      
+      return () => subscription.unsubscribe();
+    }
   }, []);
 
   // Handle successful login

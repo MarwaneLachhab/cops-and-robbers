@@ -23,6 +23,8 @@ export const supabaseAuth = {
   async signUp(email, password, username) {
     if (!supabase) throw new Error('Supabase not configured');
     
+    console.log('Starting signup for:', email, username);
+    
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -30,23 +32,34 @@ export const supabaseAuth = {
         data: {
           username,
           display_name: username
-        },
-        emailRedirectTo: window.location.origin
+        }
       }
     });
     
+    console.log('Signup response:', { user: data?.user?.id, session: !!data?.session, error });
+    
     if (error) throw error;
     
-    // Check if email confirmation is required
+    // Check if email confirmation is required (no session returned)
     if (data.user && !data.session) {
-      // Email confirmation is enabled - user needs to verify email
-      throw new Error('Please check your email to confirm your account before logging in!');
+      console.log('No session - email confirmation may be required');
+      // Try to sign in immediately (works if email confirmation is disabled)
+      try {
+        const signInResult = await supabase.auth.signInWithPassword({ email, password });
+        if (signInResult.data?.session) {
+          console.log('Auto sign-in successful after signup');
+          data.session = signInResult.data.session;
+        }
+      } catch (signInError) {
+        console.log('Auto sign-in failed:', signInError.message);
+        throw new Error('Account created! Please check your email to confirm, then log in.');
+      }
     }
     
-    // Try to create user profile in database (may fail if table doesn't exist)
+    // Create user profile in database
     if (data.user) {
       try {
-        await supabase.from('profiles').upsert({
+        const { error: profileError } = await supabase.from('profiles').upsert({
           id: data.user.id,
           username,
           email,
@@ -58,8 +71,13 @@ export const supabaseAuth = {
           },
           created_at: new Date().toISOString()
         });
+        if (profileError) {
+          console.warn('Profile creation error:', profileError.message);
+        } else {
+          console.log('Profile created successfully');
+        }
       } catch (profileError) {
-        console.warn('Could not create profile (table may not exist):', profileError.message);
+        console.warn('Could not create profile:', profileError.message);
       }
     }
     
