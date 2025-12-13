@@ -104,22 +104,21 @@ export const supabaseAuth = {
   async signIn(identifier, password) {
     if (!supabase) throw new Error('Supabase not configured');
     
+    console.log('signIn called with:', identifier);
+    
     // Check if identifier is email or username
     let email = identifier;
     if (!identifier.includes('@')) {
-      // It's a username - append default email domain or ask for email
-      // Since we can't query profiles before auth (RLS), we need a workaround
-      // Option 1: User must use email to login
-      // Option 2: Try common email pattern
-      
-      // For now, require email for login
       throw new Error('Please sign in with your email address');
     }
     
+    console.log('Calling signInWithPassword...');
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password
     });
+    
+    console.log('signInWithPassword result:', { user: data?.user?.id, session: !!data?.session, error: error?.message });
     
     if (error) throw error;
     return data;

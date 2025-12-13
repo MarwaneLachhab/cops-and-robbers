@@ -76,41 +76,40 @@ class AuthService {
   async login(username, password) {
     if (USE_SUPABASE) {
       try {
-        // Add timeout to prevent infinite loading
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Login timeout - please try again')), 15000)
-        );
+        console.log('Starting login for:', username);
         
-        const loginPromise = (async () => {
-          const data = await supabaseAuth.signIn(username, password);
+        // Call signIn directly - Supabase should handle timeouts internally
+        console.log('Calling supabaseAuth.signIn...');
+        const data = await supabaseAuth.signIn(username, password);
+        console.log('signIn complete, user:', data.user?.id);
+        
+        if (data.user) {
+          // Build user object directly from auth response for speed
+          const fullUser = {
+            id: data.user.id,
+            email: data.user.email,
+            username: data.user.user_metadata?.username || data.user.email?.split('@')[0],
+            ranking: { points: 1000, tier: 'Bronze', winStreak: 0, bestWinStreak: 0 },
+            stats: { gamesPlayed: 0, gamesWon: 0, gamesLost: 0 }
+          };
           
-          if (data.user) {
-            // Get user info with timeout protection
-            let fullUser;
-            try {
-              fullUser = await Promise.race([
-                supabaseAuth.getCurrentUser(),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('Profile fetch timeout')), 5000))
-              ]);
-            } catch (profileError) {
-              // If profile fetch fails, use basic user data
-              console.warn('Profile fetch failed, using basic data:', profileError.message);
-              fullUser = {
-                id: data.user.id,
-                email: data.user.email,
-                username: data.user.user_metadata?.username || data.user.email?.split('@')[0],
-                ranking: { points: 1000, tier: 'Bronze', winStreak: 0, bestWinStreak: 0 },
-                stats: { gamesPlayed: 0, gamesWon: 0, gamesLost: 0 }
-              };
+          // Try to get full profile in background (don't block login)
+          supabaseAuth.getCurrentUser().then(profile => {
+            if (profile) {
+              // Update stored user with full profile
+              const updatedUser = { ...fullUser, ...profile };
+              localStorage.setItem('user', JSON.stringify(updatedUser));
+              console.log('Profile loaded in background:', profile.username);
             }
-            this.setAuth(data.session?.access_token || '', fullUser);
-            return { user: fullUser, token: data.session?.access_token };
-          }
-          throw new Error('Login failed');
-        })();
-        
-        return await Promise.race([loginPromise, timeoutPromise]);
+          }).catch(err => console.warn('Background profile fetch failed:', err.message));
+          
+          this.setAuth(data.session?.access_token || '', fullUser);
+          console.log('Login complete!');
+          return { user: fullUser, token: data.session?.access_token };
+        }
+        throw new Error('Login failed');
       } catch (error) {
+        console.error('Login error:', error.message);
         throw new Error(error.message || 'Invalid credentials');
       }
     }
