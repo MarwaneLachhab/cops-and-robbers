@@ -4,7 +4,6 @@ import Auth from './components/Auth';
 import Lobby from './components/Lobby';
 import OnlineGame from './components/OnlineGame';
 import authService from './services/auth';
-import socketService from './services/socket';
 import { supabase } from './services/supabase';
 import './App.css';
 
@@ -45,7 +44,7 @@ function App() {
               if (userData && isMounted) {
                 setUser(userData);
                 setScreen(SCREENS.LOBBY);
-                socketService.connect(session.access_token);
+                // Supabase Realtime handles connections automatically
               }
             } catch (profileError) {
               console.log('Profile fetch error:', profileError);
@@ -64,7 +63,7 @@ function App() {
             if (userData && isMounted) {
               setUser(userData);
               setScreen(SCREENS.LOBBY);
-              socketService.connect(token);
+              // Supabase Realtime handles connections automatically
             } else {
               localStorage.removeItem('token');
             }
@@ -94,7 +93,7 @@ function App() {
             if (userData && isMounted) {
               setUser(userData);
               setScreen(SCREENS.LOBBY);
-              socketService.connect(session.access_token);
+              // Supabase Realtime handles connections automatically
             }
           } catch (e) {
             console.log('Profile error on auth change:', e);
@@ -116,17 +115,13 @@ function App() {
   // Handle successful login
   const handleLoginSuccess = (userData) => {
     setUser(userData);
-    const token = localStorage.getItem('token');
-    if (token) {
-      socketService.connect(token);
-    }
+    // Supabase Realtime handles connections automatically
     setScreen(SCREENS.LOBBY);
   };
 
   // Handle logout
   const handleLogout = () => {
     authService.logout();
-    socketService.disconnect();
     setUser(null);
     setCurrentRoom(null);
     setScreen(SCREENS.AUTH);

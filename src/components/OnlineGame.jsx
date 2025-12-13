@@ -1,22 +1,20 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import socketService from '../services/socket';
+import React, { useState, useEffect, useRef } from 'react';
+import realtimeService from '../services/realtime';
 import './OnlineGame.css';
 
 // Game constants
 const CELL_SIZE = 30;
-const POWER_UP_DURATION = 5000;
+const GAME_TICK = 50;
 
 const MAPS = {
   easy: {
     width: 20,
     height: 15,
     walls: [
-      // Border walls
       ...Array.from({length: 20}, (_, i) => ({x: i, y: 0})),
       ...Array.from({length: 20}, (_, i) => ({x: i, y: 14})),
       ...Array.from({length: 15}, (_, i) => ({x: 0, y: i})),
       ...Array.from({length: 15}, (_, i) => ({x: 19, y: i})),
-      // Inner walls
       {x: 5, y: 3}, {x: 5, y: 4}, {x: 5, y: 5},
       {x: 14, y: 3}, {x: 14, y: 4}, {x: 14, y: 5},
       {x: 5, y: 9}, {x: 5, y: 10}, {x: 5, y: 11},
@@ -24,7 +22,8 @@ const MAPS = {
       {x: 8, y: 7}, {x: 9, y: 7}, {x: 10, y: 7}, {x: 11, y: 7},
     ],
     criminalStart: {x: 2, y: 2},
-    copStart: {x: 17, y: 12}
+    copStart: {x: 17, y: 12},
+    coins: [{x: 3, y: 7}, {x: 10, y: 3}, {x: 16, y: 7}, {x: 10, y: 11}, {x: 7, y: 5}]
   },
   medium: {
     width: 25,
@@ -34,16 +33,14 @@ const MAPS = {
       ...Array.from({length: 25}, (_, i) => ({x: i, y: 17})),
       ...Array.from({length: 18}, (_, i) => ({x: 0, y: i})),
       ...Array.from({length: 18}, (_, i) => ({x: 24, y: i})),
-      // L-shapes and corridors
       {x: 6, y: 4}, {x: 7, y: 4}, {x: 8, y: 4}, {x: 8, y: 5}, {x: 8, y: 6},
       {x: 16, y: 4}, {x: 17, y: 4}, {x: 18, y: 4}, {x: 16, y: 5}, {x: 16, y: 6},
       {x: 6, y: 11}, {x: 7, y: 11}, {x: 8, y: 11}, {x: 8, y: 12}, {x: 8, y: 13},
       {x: 16, y: 11}, {x: 17, y: 11}, {x: 18, y: 11}, {x: 16, y: 12}, {x: 16, y: 13},
-      {x: 11, y: 7}, {x: 12, y: 7}, {x: 13, y: 7}, {x: 11, y: 8}, {x: 13, y: 8},
-      {x: 11, y: 9}, {x: 12, y: 9}, {x: 13, y: 9},
     ],
     criminalStart: {x: 2, y: 2},
-    copStart: {x: 22, y: 15}
+    copStart: {x: 22, y: 15},
+    coins: [{x: 4, y: 8}, {x: 12, y: 4}, {x: 20, y: 8}, {x: 12, y: 14}, {x: 4, y: 14}, {x: 20, y: 4}]
   },
   hard: {
     width: 30,
@@ -53,20 +50,15 @@ const MAPS = {
       ...Array.from({length: 30}, (_, i) => ({x: i, y: 19})),
       ...Array.from({length: 20}, (_, i) => ({x: 0, y: i})),
       ...Array.from({length: 20}, (_, i) => ({x: 29, y: i})),
-      // Complex maze
       ...Array.from({length: 8}, (_, i) => ({x: 5, y: 2 + i})),
-      ...Array.from({length: 8}, (_, i) => ({x: 10, y: 2 + i})),
+      ...Array.from({length: 8}, (_, i) => ({x: 10, y: 10 + i})),
       ...Array.from({length: 8}, (_, i) => ({x: 15, y: 2 + i})),
-      ...Array.from({length: 8}, (_, i) => ({x: 20, y: 2 + i})),
+      ...Array.from({length: 8}, (_, i) => ({x: 20, y: 10 + i})),
       ...Array.from({length: 8}, (_, i) => ({x: 25, y: 2 + i})),
-      ...Array.from({length: 8}, (_, i) => ({x: 5, y: 11 + i})),
-      ...Array.from({length: 8}, (_, i) => ({x: 10, y: 11 + i})),
-      ...Array.from({length: 8}, (_, i) => ({x: 15, y: 11 + i})),
-      ...Array.from({length: 8}, (_, i) => ({x: 20, y: 11 + i})),
-      ...Array.from({length: 8}, (_, i) => ({x: 25, y: 11 + i})),
     ],
     criminalStart: {x: 2, y: 2},
-    copStart: {x: 27, y: 17}
+    copStart: {x: 27, y: 17},
+    coins: [{x: 3, y: 10}, {x: 8, y: 5}, {x: 13, y: 10}, {x: 18, y: 5}, {x: 23, y: 10}, {x: 27, y: 5}, {x: 13, y: 15}]
   }
 };
 
@@ -74,336 +66,265 @@ function OnlineGame({ room, user, onLeaveRoom }) {
   const canvasRef = useRef(null);
   const [gameState, setGameState] = useState(null);
   const [countdown, setCountdown] = useState(null);
-  const [gameStatus, setGameStatus] = useState('waiting'); // waiting, countdown, playing, ended
+  const [gameStatus, setGameStatus] = useState('waiting');
   const [winner, setWinner] = useState(null);
-  const [players, setPlayers] = useState(room.players || []);
+  const [players, setPlayers] = useState([]);
   const [isReady, setIsReady] = useState(false);
-  const [messages, setMessages] = useState([]);
-  const [chatInput, setChatInput] = useState('');
   const [myRole, setMyRole] = useState(null);
+  const [isHost, setIsHost] = useState(false);
   
   const keysPressed = useRef({});
-  const lastMoveTime = useRef(0);
-  const MOVE_COOLDOWN = 80;
+  const gameLoopRef = useRef(null);
+  const localGameState = useRef(null);
 
-  // Determine player's role
+  const roomId = room.id;
+  const mapName = room.map_name || 'easy';
+  const map = MAPS[mapName] || MAPS.easy;
+
+  // Initialize
   useEffect(() => {
-    const me = room.players.find(p => p.oderId === user?._id || p.oderId === user?.id || p.username === user?.username);
-    if (me) {
-      setMyRole(me.role);
-    }
-  }, [room.players, user]);
+    const roomPlayers = typeof room.players === 'string' ? JSON.parse(room.players) : (room.players || []);
+    setPlayers(roomPlayers);
+    setIsHost(user.id === room.host_id);
+    
+    const me = roomPlayers.find(p => p.id === user.id);
+    if (me?.role) setMyRole(me.role);
 
-  // Socket event handlers
-  useEffect(() => {
-    // Game state updates
-    socketService.on('game-state', (state) => {
-      setGameState(state);
-      setGameStatus('playing');
-    });
-
-    socketService.on('countdown', (count) => {
-      setCountdown(count);
-      setGameStatus('countdown');
-    });
-
-    socketService.on('game-start', () => {
-      setCountdown(null);
-      setGameStatus('playing');
-    });
-
-    socketService.on('game-end', ({ winner: winnerData, stats }) => {
-      setWinner(winnerData);
-      setGameStatus('ended');
-    });
-
-    socketService.on('player-joined', ({ players: updatedPlayers }) => {
-      setPlayers(updatedPlayers);
-    });
-
-    socketService.on('player-left', ({ players: updatedPlayers }) => {
-      setPlayers(updatedPlayers);
-    });
-
-    socketService.on('player-ready', ({ playerId, ready }) => {
-      setPlayers(prev => prev.map(p => 
-        p.userId === playerId ? { ...p, isReady: ready } : p
-      ));
-    });
-
-    socketService.on('chat-message', (message) => {
-      setMessages(prev => [...prev, message]);
+    realtimeService.subscribeRoom(roomId, {
+      onRoomUpdate: (updatedRoom) => {
+        const updatedPlayers = typeof updatedRoom.players === 'string'
+          ? JSON.parse(updatedRoom.players) : (updatedRoom.players || []);
+        setPlayers(updatedPlayers);
+        
+        const me = updatedPlayers.find(p => p.id === user.id);
+        if (me?.role) setMyRole(me.role);
+        
+        if (updatedRoom.status === 'playing' && gameStatus === 'waiting') {
+          startGameCountdown();
+        }
+      },
+      onRoomDeleted: () => {
+        alert('Room was closed');
+        onLeaveRoom();
+      },
+      onGameState: (state) => {
+        setGameState(state);
+        localGameState.current = state;
+      },
+      onGameStart: () => {
+        setCountdown(null);
+        setGameStatus('playing');
+      },
+      onGameEnd: (data) => {
+        setWinner(data);
+        setGameStatus('ended');
+      },
+      onPlayerInput: (input) => {
+        if (isHost && localGameState.current) {
+          processPlayerInput(input);
+        }
+      }
     });
 
     return () => {
-      socketService.off('game-state');
-      socketService.off('countdown');
-      socketService.off('game-start');
-      socketService.off('game-end');
-      socketService.off('player-joined');
-      socketService.off('player-left');
-      socketService.off('player-ready');
-      socketService.off('chat-message');
+      realtimeService.unsubscribeRoom();
+      if (gameLoopRef.current) clearInterval(gameLoopRef.current);
     };
-  }, []);
+  }, [roomId, user.id]);
 
-  // Keyboard controls
+  const handleReady = async () => {
+    const newReady = !isReady;
+    setIsReady(newReady);
+    await realtimeService.updatePlayer(roomId, user.id, { ready: newReady });
+    
+    const updatedPlayers = players.map(p => p.id === user.id ? { ...p, ready: newReady } : p);
+    
+    if (updatedPlayers.length === 2 && updatedPlayers.every(p => p.ready)) {
+      if (!updatedPlayers[0].role) {
+        const roles = Math.random() > 0.5 ? ['cop', 'criminal'] : ['criminal', 'cop'];
+        await realtimeService.updatePlayer(roomId, updatedPlayers[0].id, { role: roles[0] });
+        await realtimeService.updatePlayer(roomId, updatedPlayers[1].id, { role: roles[1] });
+      }
+      
+      if (isHost) {
+        await realtimeService.startGame(roomId);
+        startGameCountdown();
+      }
+    }
+  };
+
+  const startGameCountdown = () => {
+    setGameStatus('countdown');
+    let count = 3;
+    setCountdown(count);
+    
+    const interval = setInterval(() => {
+      count--;
+      setCountdown(count);
+      if (count <= 0) {
+        clearInterval(interval);
+        setCountdown(null);
+        setGameStatus('playing');
+        if (isHost) initializeGame();
+      }
+    }, 1000);
+  };
+
+  const initializeGame = () => {
+    const state = {
+      criminal: { x: map.criminalStart.x, y: map.criminalStart.y, coins: 0,
+        username: players.find(p => p.role === 'criminal')?.username || 'Criminal' },
+      cop: { x: map.copStart.x, y: map.copStart.y,
+        username: players.find(p => p.role === 'cop')?.username || 'Cop' },
+      coins: [...map.coins],
+      totalCoins: map.coins.length,
+      timeRemaining: 60,
+      status: 'playing'
+    };
+    
+    localGameState.current = state;
+    setGameState(state);
+    realtimeService.broadcastGameState(state);
+    
+    gameLoopRef.current = setInterval(() => {
+      if (localGameState.current?.status === 'playing') {
+        localGameState.current.timeRemaining -= 0.05;
+        checkWinConditions();
+        realtimeService.broadcastGameState(localGameState.current);
+      }
+    }, GAME_TICK);
+  };
+
+  const processPlayerInput = (input) => {
+    if (!localGameState.current) return;
+    const { playerId, dx, dy } = input;
+    const player = players.find(p => p.id === playerId);
+    if (!player) return;
+    
+    const entity = player.role === 'cop' ? localGameState.current.cop : localGameState.current.criminal;
+    const newX = entity.x + dx;
+    const newY = entity.y + dy;
+    
+    const isWall = map.walls.some(w => w.x === newX && w.y === newY);
+    if (!isWall && newX >= 0 && newX < map.width && newY >= 0 && newY < map.height) {
+      entity.x = newX;
+      entity.y = newY;
+      
+      if (player.role === 'criminal') {
+        const coinIdx = localGameState.current.coins.findIndex(c => c.x === newX && c.y === newY);
+        if (coinIdx !== -1) {
+          localGameState.current.coins.splice(coinIdx, 1);
+          localGameState.current.criminal.coins++;
+        }
+      }
+    }
+  };
+
+  const checkWinConditions = () => {
+    if (!localGameState.current) return;
+    const { cop, criminal, coins, timeRemaining } = localGameState.current;
+    
+    if (cop.x === criminal.x && cop.y === criminal.y) { endGame('cop'); return; }
+    if (coins.length === 0) { endGame('criminal'); return; }
+    if (timeRemaining <= 0) { endGame('cop'); return; }
+  };
+
+  const endGame = async (winnerRole) => {
+    if (gameLoopRef.current) clearInterval(gameLoopRef.current);
+    localGameState.current.status = 'ended';
+    
+    const winnerPlayer = players.find(p => p.role === winnerRole);
+    const winnerData = { role: winnerRole, username: winnerPlayer?.username || winnerRole };
+    
+    setWinner(winnerData);
+    setGameStatus('ended');
+    await realtimeService.endGame(roomId, winnerPlayer?.id, winnerRole);
+  };
+
+  // Keyboard
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (gameStatus !== 'playing') return;
-      
       const key = e.key.toLowerCase();
-      keysPressed.current[key] = true;
-      
-      // Prevent default for arrow keys
-      if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd', 'z', 'q'].includes(key)) {
-        e.preventDefault();
+      if (!keysPressed.current[key]) {
+        keysPressed.current[key] = true;
+        let dx = 0, dy = 0;
+        if (key === 'arrowup' || key === 'w' || key === 'z') dy = -1;
+        if (key === 'arrowdown' || key === 's') dy = 1;
+        if (key === 'arrowleft' || key === 'a' || key === 'q') dx = -1;
+        if (key === 'arrowright' || key === 'd') dx = 1;
+        
+        if (dx !== 0 || dy !== 0) {
+          realtimeService.sendPlayerInput({ playerId: user.id, dx, dy });
+        }
       }
+      if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) e.preventDefault();
     };
-
-    const handleKeyUp = (e) => {
-      keysPressed.current[e.key.toLowerCase()] = false;
-    };
-
+    const handleKeyUp = (e) => { keysPressed.current[e.key.toLowerCase()] = false; };
+    
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
-
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [gameStatus]);
+  }, [gameStatus, user.id]);
 
-  // Game loop for sending moves
-  useEffect(() => {
-    if (gameStatus !== 'playing') return;
-
-    const gameLoop = setInterval(() => {
-      const now = Date.now();
-      if (now - lastMoveTime.current < MOVE_COOLDOWN) return;
-
-      let dx = 0, dy = 0;
-      const keys = keysPressed.current;
-
-      // Arrow keys or WASD/ZQSD
-      if (keys['arrowup'] || keys['w'] || keys['z']) dy = -1;
-      if (keys['arrowdown'] || keys['s']) dy = 1;
-      if (keys['arrowleft'] || keys['a'] || keys['q']) dx = -1;
-      if (keys['arrowright'] || keys['d']) dx = 1;
-
-      if (dx !== 0 || dy !== 0) {
-        socketService.emit('player-move', {
-          roomId: room.roomId,
-          dx,
-          dy
-        });
-        lastMoveTime.current = now;
-      }
-    }, 16);
-
-    return () => clearInterval(gameLoop);
-  }, [gameStatus, room.roomId]);
-
-  // Render game
+  // Render
   useEffect(() => {
     if (!canvasRef.current || !gameState) return;
-
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    const map = MAPS[room.map || 'easy'];
-
+    
     canvas.width = map.width * CELL_SIZE;
     canvas.height = map.height * CELL_SIZE;
-
-    // Clear canvas
+    
     ctx.fillStyle = '#1a1a2e';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Draw grid
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
-    for (let x = 0; x <= map.width; x++) {
-      ctx.beginPath();
-      ctx.moveTo(x * CELL_SIZE, 0);
-      ctx.lineTo(x * CELL_SIZE, canvas.height);
-      ctx.stroke();
-    }
-    for (let y = 0; y <= map.height; y++) {
-      ctx.beginPath();
-      ctx.moveTo(0, y * CELL_SIZE);
-      ctx.lineTo(canvas.width, y * CELL_SIZE);
-      ctx.stroke();
-    }
-
-    // Draw walls
+    
+    // Walls
     ctx.fillStyle = '#333355';
-    map.walls.forEach(wall => {
-      ctx.fillRect(wall.x * CELL_SIZE, wall.y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
-      // Add 3D effect
-      ctx.fillStyle = '#444466';
-      ctx.fillRect(wall.x * CELL_SIZE, wall.y * CELL_SIZE, CELL_SIZE - 2, 2);
-      ctx.fillRect(wall.x * CELL_SIZE, wall.y * CELL_SIZE, 2, CELL_SIZE - 2);
-      ctx.fillStyle = '#222244';
-      ctx.fillRect(wall.x * CELL_SIZE + CELL_SIZE - 2, wall.y * CELL_SIZE, 2, CELL_SIZE);
-      ctx.fillRect(wall.x * CELL_SIZE, wall.y * CELL_SIZE + CELL_SIZE - 2, CELL_SIZE, 2);
-      ctx.fillStyle = '#333355';
-    });
-
-    // Draw coins
+    map.walls.forEach(w => ctx.fillRect(w.x * CELL_SIZE, w.y * CELL_SIZE, CELL_SIZE, CELL_SIZE));
+    
+    // Coins
     if (gameState.coins) {
       gameState.coins.forEach(coin => {
-        const centerX = coin.x * CELL_SIZE + CELL_SIZE / 2;
-        const centerY = coin.y * CELL_SIZE + CELL_SIZE / 2;
-        
-        // Glow effect
-        const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, 15);
-        gradient.addColorStop(0, 'rgba(255, 215, 0, 0.3)');
-        gradient.addColorStop(1, 'rgba(255, 215, 0, 0)');
-        ctx.fillStyle = gradient;
-        ctx.fillRect(coin.x * CELL_SIZE - 5, coin.y * CELL_SIZE - 5, CELL_SIZE + 10, CELL_SIZE + 10);
-        
-        // Coin
         ctx.fillStyle = '#ffd700';
         ctx.beginPath();
-        ctx.arc(centerX, centerY, 8, 0, Math.PI * 2);
-        ctx.fill();
-        
-        ctx.fillStyle = '#ffed4a';
-        ctx.beginPath();
-        ctx.arc(centerX - 2, centerY - 2, 3, 0, Math.PI * 2);
+        ctx.arc(coin.x * CELL_SIZE + CELL_SIZE/2, coin.y * CELL_SIZE + CELL_SIZE/2, 8, 0, Math.PI * 2);
         ctx.fill();
       });
     }
-
-    // Draw power-ups
-    if (gameState.powerUps) {
-      gameState.powerUps.forEach(powerUp => {
-        const centerX = powerUp.x * CELL_SIZE + CELL_SIZE / 2;
-        const centerY = powerUp.y * CELL_SIZE + CELL_SIZE / 2;
-        
-        let color = '#00ff00';
-        let icon = '?';
-        
-        switch (powerUp.type) {
-          case 'speed':
-            color = '#00ffff';
-            icon = '⚡';
-            break;
-          case 'invisible':
-            color = '#9966ff';
-            icon = '👻';
-            break;
-          case 'freeze':
-            color = '#00aaff';
-            icon = '❄️';
-            break;
-          case 'taser':
-            color = '#ffff00';
-            icon = '⚡';
-            break;
-        }
-        
-        // Glow
-        const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, 18);
-        gradient.addColorStop(0, color);
-        gradient.addColorStop(1, 'transparent');
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, 18, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Icon
-        ctx.font = '16px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(icon, centerX, centerY);
-      });
-    }
-
-    // Draw players
-    if (gameState.criminal) {
-      const criminal = gameState.criminal;
-      const centerX = criminal.x * CELL_SIZE + CELL_SIZE / 2;
-      const centerY = criminal.y * CELL_SIZE + CELL_SIZE / 2;
-      
-      // Skip if invisible (but show to criminal player)
-      if (!criminal.invisible || myRole === 'criminal') {
-        // Glow
-        ctx.fillStyle = criminal.invisible ? 'rgba(255, 68, 68, 0.3)' : 'rgba(255, 68, 68, 0.5)';
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, 16, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Body
-        ctx.fillStyle = criminal.invisible ? 'rgba(255, 68, 68, 0.5)' : '#ff4444';
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, 12, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Icon
-        ctx.font = '14px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('🦹', centerX, centerY);
-        
-        // Name tag
-        ctx.fillStyle = 'white';
-        ctx.font = '10px Arial';
-        ctx.fillText(criminal.username || 'Criminal', centerX, centerY - 20);
-      }
-    }
-
-    if (gameState.cop) {
-      const cop = gameState.cop;
-      const centerX = cop.x * CELL_SIZE + CELL_SIZE / 2;
-      const centerY = cop.y * CELL_SIZE + CELL_SIZE / 2;
-      
-      // Glow
-      ctx.fillStyle = 'rgba(68, 136, 255, 0.5)';
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, 16, 0, Math.PI * 2);
-      ctx.fill();
-      
-      // Body
-      ctx.fillStyle = cop.frozen ? '#88bbff' : '#4488ff';
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, 12, 0, Math.PI * 2);
-      ctx.fill();
-      
-      // Icon
-      ctx.font = '14px Arial';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(cop.frozen ? '🥶' : '👮', centerX, centerY);
-      
-      // Name tag
-      ctx.fillStyle = 'white';
-      ctx.font = '10px Arial';
-      ctx.fillText(cop.username || 'Cop', centerX, centerY - 20);
-    }
-
-  }, [gameState, room.map, myRole]);
-
-  const handleReady = () => {
-    setIsReady(!isReady);
-    socketService.emit('player-ready', {
-      roomId: room.roomId,
-      ready: !isReady
-    });
-  };
-
-  const handleSendChat = (e) => {
-    e.preventDefault();
-    if (!chatInput.trim()) return;
     
-    socketService.emit('chat-message', {
-      roomId: room.roomId,
-      message: chatInput
-    });
-    setChatInput('');
-  };
+    // Criminal
+    if (gameState.criminal) {
+      const c = gameState.criminal;
+      ctx.fillStyle = '#ff4444';
+      ctx.beginPath();
+      ctx.arc(c.x * CELL_SIZE + CELL_SIZE/2, c.y * CELL_SIZE + CELL_SIZE/2, 12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = '14px Arial'; ctx.textAlign = 'center';
+      ctx.fillText('🦹', c.x * CELL_SIZE + CELL_SIZE/2, c.y * CELL_SIZE + CELL_SIZE/2 + 5);
+      ctx.fillStyle = 'white'; ctx.font = '10px Arial';
+      ctx.fillText(c.username, c.x * CELL_SIZE + CELL_SIZE/2, c.y * CELL_SIZE - 10);
+    }
+    
+    // Cop
+    if (gameState.cop) {
+      const c = gameState.cop;
+      ctx.fillStyle = '#4488ff';
+      ctx.beginPath();
+      ctx.arc(c.x * CELL_SIZE + CELL_SIZE/2, c.y * CELL_SIZE + CELL_SIZE/2, 12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = '14px Arial'; ctx.textAlign = 'center';
+      ctx.fillText('👮', c.x * CELL_SIZE + CELL_SIZE/2, c.y * CELL_SIZE + CELL_SIZE/2 + 5);
+      ctx.fillStyle = 'white'; ctx.font = '10px Arial';
+      ctx.fillText(c.username, c.x * CELL_SIZE + CELL_SIZE/2, c.y * CELL_SIZE - 10);
+    }
+  }, [gameState, map]);
 
-  const handleLeave = () => {
-    socketService.emit('leave-room', { roomId: room.roomId });
+  const handleLeave = async () => {
+    await realtimeService.leaveRoom(roomId, user.id);
     onLeaveRoom();
   };
 
@@ -411,61 +332,42 @@ function OnlineGame({ room, user, onLeaveRoom }) {
     setGameStatus('waiting');
     setWinner(null);
     setIsReady(false);
+    if (gameLoopRef.current) clearInterval(gameLoopRef.current);
   };
 
   return (
     <div className="online-game-container">
-      {/* Header */}
       <header className="game-header">
         <div className="room-info">
           <h2>{room.name}</h2>
-          <span className="map-badge">🗺️ {room.map}</span>
+          <span className="map-badge">🗺️ {mapName}</span>
         </div>
-        <button className="leave-btn" onClick={handleLeave}>
-          🚪 Leave Room
-        </button>
+        <button className="leave-btn" onClick={handleLeave}>🚪 Leave</button>
       </header>
 
       <div className="game-content">
-        {/* Main Game Area */}
         <div className="game-area">
-          {/* Waiting Screen */}
           {gameStatus === 'waiting' && (
             <div className="waiting-screen">
               <h2>⏳ Waiting for Players</h2>
               <div className="players-list">
-                {players.map((player, index) => (
-                  <div key={player.oderId || player.oderId || index} className={`player-item ${player.role}`}>
-                    <span className="role-icon">
-                      {player.role === 'criminal' ? '🦹' : '👮'}
-                    </span>
-                    <span className="player-name">{player.username}</span>
-                    <span className={`ready-status ${player.isReady ? 'ready' : ''}`}>
-                      {player.isReady ? '✅ Ready' : '⏳ Not Ready'}
-                    </span>
+                {players.map((player, i) => (
+                  <div key={player.id || i} className={`player-item ${player.role || ''}`}>
+                    <span>{player.role === 'criminal' ? '🦹' : player.role === 'cop' ? '👮' : '❓'}</span>
+                    <span>{player.username} {player.id === user.id && '(You)'}</span>
+                    <span>{player.ready ? '✅' : '⏳'}</span>
                   </div>
                 ))}
-                {players.length < 2 && (
-                  <div className="player-item empty">
-                    <span>Waiting for opponent...</span>
-                  </div>
-                )}
+                {players.length < 2 && <div className="player-item empty">Waiting for opponent...</div>}
               </div>
-              
-              <button 
-                className={`ready-btn ${isReady ? 'ready' : ''}`}
-                onClick={handleReady}
-              >
-                {isReady ? '❌ Cancel Ready' : '✅ Ready'}
-              </button>
-              
-              <p className="hint">
-                Both players must be ready to start the game
-              </p>
+              {players.length === 2 && (
+                <button className={`ready-btn ${isReady ? 'ready' : ''}`} onClick={handleReady}>
+                  {isReady ? '❌ Cancel' : '✅ Ready'}
+                </button>
+              )}
             </div>
           )}
 
-          {/* Countdown Screen */}
           {gameStatus === 'countdown' && (
             <div className="countdown-screen">
               <div className="countdown-number">{countdown}</div>
@@ -473,78 +375,36 @@ function OnlineGame({ room, user, onLeaveRoom }) {
             </div>
           )}
 
-          {/* Game Canvas */}
           {(gameStatus === 'playing' || gameStatus === 'ended') && (
             <div className="canvas-container">
               <canvas ref={canvasRef} />
-              
-              {/* Game Stats Overlay */}
               {gameState && (
                 <div className="game-stats-overlay">
-                  <div className="stat-item">
-                    <span>💰 Coins: {gameState.criminal?.coins || 0}/{gameState.totalCoins || 10}</span>
-                  </div>
-                  <div className="stat-item">
-                    <span>⏱️ Time: {gameState.timeRemaining || 60}s</span>
-                  </div>
+                  <span>💰 {gameState.criminal?.coins || 0}/{gameState.totalCoins}</span>
+                  <span>⏱️ {Math.ceil(gameState.timeRemaining || 0)}s</span>
+                  <span>You: {myRole === 'cop' ? '👮' : '🦹'}</span>
                 </div>
               )}
             </div>
           )}
 
-          {/* Game Over Screen */}
           {gameStatus === 'ended' && winner && (
             <div className="game-over-overlay">
               <div className="game-over-content">
                 <h2>{winner.role === myRole ? '🎉 Victory!' : '😢 Defeat'}</h2>
-                <p>
-                  {winner.role === 'criminal' 
-                    ? '🦹 Criminal escaped with the loot!' 
-                    : '👮 Cop caught the criminal!'}
-                </p>
-                <p className="winner-name">Winner: {winner.username}</p>
-                
-                <div className="end-stats">
-                  <p>Coins Collected: {gameState?.criminal?.coins || 0}</p>
-                  <p>Time Remaining: {gameState?.timeRemaining || 0}s</p>
-                </div>
-                
+                <p>Winner: {winner.username}</p>
                 <div className="end-actions">
-                  <button onClick={handlePlayAgain}>🔄 Play Again</button>
+                  <button onClick={handlePlayAgain}>🔄 Again</button>
                   <button onClick={handleLeave}>🚪 Leave</button>
                 </div>
               </div>
             </div>
           )}
         </div>
-
-        {/* Chat Panel */}
-        <div className="chat-panel">
-          <h3>💬 Chat</h3>
-          <div className="messages-list">
-            {messages.map((msg, i) => (
-              <div key={i} className={`message ${msg.userId === user._id ? 'own' : ''}`}>
-                <span className="sender">{msg.username}:</span>
-                <span className="text">{msg.message}</span>
-              </div>
-            ))}
-          </div>
-          <form onSubmit={handleSendChat} className="chat-input">
-            <input
-              type="text"
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              placeholder="Type a message..."
-              maxLength={100}
-            />
-            <button type="submit">Send</button>
-          </form>
-        </div>
       </div>
-
-      {/* Controls Info */}
+      
       <div className="controls-info">
-        <p>Use <strong>Arrow Keys</strong> or <strong>WASD/ZQSD</strong> to move</p>
+        <p>Use <strong>Arrow Keys</strong> or <strong>WASD</strong> to move</p>
       </div>
     </div>
   );

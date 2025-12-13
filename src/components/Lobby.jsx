@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import socketService from '../services/socket';
+import realtimeService from '../services/realtime';
 import apiService from '../services/api';
 import Social from './Social';
 import './Lobby.css';
@@ -14,56 +14,35 @@ function Lobby({ user, onJoinRoom, onCreateRoom, onLogout, onPlayLocal }) {
   const [newRoomPrivate, setNewRoomPrivate] = useState(false);
   const [newRoomPassword, setNewRoomPassword] = useState('');
   const [joinPassword, setJoinPassword] = useState('');
-  const [joiningRoomId, setJoiningRoomId] = useState(null);
+  const [joiningRoom, setJoiningRoom] = useState(null);
   const [activeTab, setActiveTab] = useState('rooms');
-  const [loading, setLoading] = useState(false); // Start with false
+  const [loading, setLoading] = useState(true);
   const [showSocial, setShowSocial] = useState(false);
 
   useEffect(() => {
-    // Set up socket listeners
-    socketService.on('rooms-list', (roomsList) => {
-      setRooms(roomsList);
+    // Subscribe to lobby updates via Supabase Realtime
+    realtimeService.subscribeLobby((roomsList) => {
+      // Transform rooms to expected format
+      const formattedRooms = roomsList.map(room => ({
+        id: room.id,
+        name: room.name,
+        hostId: room.host_id,
+        mapName: room.map_name,
+        isPrivate: room.is_private,
+        status: room.status,
+        players: JSON.parse(room.players || '[]'),
+        playerCount: JSON.parse(room.players || '[]').length
+      }));
+      setRooms(formattedRooms);
       setLoading(false);
     });
-
-    socketService.on('rooms-updated', (roomsList) => {
-      setRooms(roomsList);
-    });
-
-    socketService.on('room-created', ({ room }) => {
-      onJoinRoom(room);
-    });
-
-    socketService.on('room-joined', ({ room }) => {
-      onJoinRoom(room);
-    });
-
-    socketService.on('error', ({ message }) => {
-      alert(message);
-    });
-
-    // Only try to get rooms if socket is connected
-    if (socketService.socket?.connected) {
-      setLoading(true);
-      socketService.getRooms();
-    }
     
     loadLeaderboard();
 
-    // Timeout to stop loading if socket doesn't respond
-    const timeout = setTimeout(() => {
-      setLoading(false);
-    }, 3000);
-
     return () => {
-      clearTimeout(timeout);
-      socketService.off('rooms-list');
-      socketService.off('rooms-updated');
-      socketService.off('room-created');
-      socketService.off('room-joined');
-      socketService.off('error');
+      realtimeService.unsubscribeLobby();
     };
-  }, [onJoinRoom]);
+  }, []);
 
   const loadLeaderboard = async () => {
     try {
@@ -74,35 +53,59 @@ function Lobby({ user, onJoinRoom, onCreateRoom, onLogout, onPlayLocal }) {
     }
   };
 
-  const handleCreateRoom = () => {
+  const handleCreateRoom = async () => {
     if (!newRoomName.trim()) {
       alert('Please enter a room name');
       return;
     }
 
-    socketService.createRoom({
-      name: newRoomName,
-      map: newRoomMap,
-      isPrivate: newRoomPrivate,
-      password: newRoomPrivate ? newRoomPassword : null
-    });
+    const room = await realtimeService.createRoom(
+      user.id,
+      user.username,
+      newRoomName,
+      newRoomMap,
+      newRoomPrivate,
+      newRoomPrivate ? newRoomPassword : null
+    );
 
-    setShowCreateModal(false);
-    setNewRoomName('');
-    setNewRoomPassword('');
-  };
-
-  const handleJoinRoom = (room) => {
-    if (room.settings?.isPrivate) {
-      setJoiningRoomId(room.roomId);
+    if (room) {
+      setShowCreateModal(false);
+      setNewRoomName('');
+      setNewRoomPassword('');
+      onJoinRoom(room);
     } else {
-      socketService.joinRoom(room.roomId);
+      alert('Failed to create room');
     }
   };
 
-  const confirmJoinPrivateRoom = () => {
-    socketService.joinRoom(joiningRoomId, joinPassword);
-    setJoiningRoomId(null);
+  const handleJoinRoom = async (room) => {
+    if (room.isPrivate) {
+      setJoiningRoom(room);
+    } else {
+      const result = await realtimeService.joinRoom(room.id, user.id, user.username);
+      if (result.success) {
+        onJoinRoom(result.room);
+      } else {
+        alert(result.error);
+      }
+    }
+  };
+
+  const confirmJoinPrivateRoom = async () => {
+    const result = await realtimeService.joinRoom(
+      joiningRoom.id, 
+      user.id, 
+      user.username, 
+      joinPassword
+    );
+    
+    if (result.success) {
+      onJoinRoom(result.room);
+    } else {
+      alert(result.error);
+    }
+    
+    setJoiningRoom(null);
     setJoinPassword('');
   };
 
@@ -199,23 +202,25 @@ function Lobby({ user, onJoinRoom, onCreateRoom, onLogout, onPlayLocal }) {
             ) : (
               <div className="rooms-list">
                 {rooms.map((room) => (
-                  <div key={room.roomId} className="room-card">
+                  <div key={room.id} className="room-card">
                     <div className="room-info">
                       <h3>{room.name}</h3>
                       <div className="room-details">
-                        <span>🗺️ {room.settings?.map || 'easy'}</span>
+                        <span>🗺️ {room.mapName || 'easy'}</span>
                         <span>👥 {room.playerCount}/2</span>
-                        <span>👁️ {room.spectatorCount || 0}</span>
-                        {room.settings?.isPrivate && <span>🔒</span>}
+                        {room.isPrivate && <span>🔒</span>}
+                        <span className={`status-${room.status}`}>
+                          {room.status === 'waiting' ? '⏳ Waiting' : '🎮 Playing'}
+                        </span>
                       </div>
-                      <p className="room-host">Host: {room.hostUsername}</p>
+                      <p className="room-host">Host: {room.players[0]?.username || 'Unknown'}</p>
                     </div>
                     <button 
                       className="join-btn"
                       onClick={() => handleJoinRoom(room)}
-                      disabled={room.playerCount >= 2}
+                      disabled={room.playerCount >= 2 || room.status === 'playing'}
                     >
-                      {room.playerCount >= 2 ? 'Full' : 'Join'}
+                      {room.playerCount >= 2 ? 'Full' : room.status === 'playing' ? 'In Game' : 'Join'}
                     </button>
                   </div>
                 ))}
@@ -366,8 +371,8 @@ function Lobby({ user, onJoinRoom, onCreateRoom, onLogout, onPlayLocal }) {
       )}
 
       {/* Join Private Room Modal */}
-      {joiningRoomId && (
-        <div className="modal-overlay" onClick={() => setJoiningRoomId(null)}>
+      {joiningRoom && (
+        <div className="modal-overlay" onClick={() => setJoiningRoom(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <h2>🔒 Enter Password</h2>
             
@@ -382,7 +387,7 @@ function Lobby({ user, onJoinRoom, onCreateRoom, onLogout, onPlayLocal }) {
 
             <div className="modal-actions">
               <button onClick={confirmJoinPrivateRoom}>Join</button>
-              <button onClick={() => setJoiningRoomId(null)}>Cancel</button>
+              <button onClick={() => setJoiningRoom(null)}>Cancel</button>
             </div>
           </div>
         </div>
