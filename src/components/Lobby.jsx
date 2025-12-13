@@ -16,7 +16,7 @@ function Lobby({ user, onJoinRoom, onCreateRoom, onLogout, onPlayLocal }) {
   const [joinPassword, setJoinPassword] = useState('');
   const [joiningRoomId, setJoiningRoomId] = useState(null);
   const [activeTab, setActiveTab] = useState('rooms');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Start with false
   const [showSocial, setShowSocial] = useState(false);
 
   useEffect(() => {
@@ -42,11 +42,21 @@ function Lobby({ user, onJoinRoom, onCreateRoom, onLogout, onPlayLocal }) {
       alert(message);
     });
 
-    // Get initial data
-    socketService.getRooms();
+    // Only try to get rooms if socket is connected
+    if (socketService.socket?.connected) {
+      setLoading(true);
+      socketService.getRooms();
+    }
+    
     loadLeaderboard();
 
+    // Timeout to stop loading if socket doesn't respond
+    const timeout = setTimeout(() => {
+      setLoading(false);
+    }, 3000);
+
     return () => {
+      clearTimeout(timeout);
       socketService.off('rooms-list');
       socketService.off('rooms-updated');
       socketService.off('room-created');
