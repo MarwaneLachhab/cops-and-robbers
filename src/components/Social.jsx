@@ -64,39 +64,76 @@ function Social({ user, onClose }) {
   const loadFriends = async () => {
     if (!supabase) return;
     
-    const { data } = await supabase
-      .from('friendships')
-      .select(`
-        id,
-        status,
-        friend:friend_id(id, username, ranking, stats),
-        user:user_id(id, username, ranking, stats)
-      `)
-      .or(`user_id.eq.${user.id},friend_id.eq.${user.id}`)
-      .eq('status', 'accepted');
+    try {
+      // Get friendships where user is either user_id or friend_id
+      const { data, error } = await supabase
+        .from('friendships')
+        .select('id, status, user_id, friend_id')
+        .or(`user_id.eq.${user.id},friend_id.eq.${user.id}`)
+        .eq('status', 'accepted');
 
-    if (data) {
-      const friendsList = data.map(f => {
-        return f.user.id === user.id ? f.friend : f.user;
-      });
-      setFriends(friendsList);
+      if (error) {
+        console.error('Error loading friends:', error);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        // Get the friend IDs (the other person in the friendship)
+        const friendIds = data.map(f => f.user_id === user.id ? f.friend_id : f.user_id);
+        
+        // Fetch friend profiles
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, username, ranking, stats')
+          .in('id', friendIds);
+        
+        setFriends(profiles || []);
+      } else {
+        setFriends([]);
+      }
+    } catch (err) {
+      console.error('Error in loadFriends:', err);
+      setFriends([]);
     }
   };
 
   const loadPendingRequests = async () => {
     if (!supabase) return;
 
-    const { data } = await supabase
-      .from('friendships')
-      .select(`
-        id,
-        user:user_id(id, username, ranking)
-      `)
-      .eq('friend_id', user.id)
-      .eq('status', 'pending');
+    try {
+      // Get pending requests where current user is the friend (receiving requests)
+      const { data, error } = await supabase
+        .from('friendships')
+        .select('id, user_id')
+        .eq('friend_id', user.id)
+        .eq('status', 'pending');
 
-    if (data) {
-      setPendingRequests(data);
+      if (error) {
+        console.error('Error loading pending requests:', error);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        // Get the requester profiles
+        const requesterIds = data.map(r => r.user_id);
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, username, ranking')
+          .in('id', requesterIds);
+        
+        // Combine friendship id with user profile
+        const requests = data.map(r => ({
+          id: r.id,
+          user: profiles?.find(p => p.id === r.user_id) || { id: r.user_id, username: 'Unknown' }
+        }));
+        
+        setPendingRequests(requests);
+      } else {
+        setPendingRequests([]);
+      }
+    } catch (err) {
+      console.error('Error in loadPendingRequests:', err);
+      setPendingRequests([]);
     }
   };
 
