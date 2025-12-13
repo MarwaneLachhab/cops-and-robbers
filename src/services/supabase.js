@@ -42,22 +42,38 @@ export const supabaseAuth = {
     
     // Check if email confirmation is required (no session returned)
     if (data.user && !data.session) {
-      console.log('No session - email confirmation may be required');
-      // Try to sign in immediately (works if email confirmation is disabled)
+      console.log('No session returned - checking if email confirmation is needed');
+      
+      // Check if the user's email is already confirmed (identities exist)
+      // If identities array is empty or user has no confirmed_at, email confirmation is required
+      const needsConfirmation = !data.user.email_confirmed_at && 
+        (!data.user.identities || data.user.identities.length === 0);
+      
+      if (needsConfirmation) {
+        // Email confirmation IS required - throw clear error
+        throw new Error('📧 Check your email! We sent a confirmation link to ' + email + '. Click the link to activate your account, then come back and log in.');
+      }
+      
+      // Try to sign in (in case confirmation is disabled but session wasn't returned)
       try {
         const signInResult = await supabase.auth.signInWithPassword({ email, password });
         if (signInResult.data?.session) {
-          console.log('Auto sign-in successful after signup');
+          console.log('Auto sign-in successful');
           data.session = signInResult.data.session;
+        } else if (signInResult.error) {
+          throw new Error('📧 Please check your email and confirm your account before logging in.');
         }
       } catch (signInError) {
-        console.log('Auto sign-in failed:', signInError.message);
-        throw new Error('Account created! Please check your email to confirm, then log in.');
+        console.log('Sign-in after signup failed:', signInError.message);
+        if (signInError.message.includes('Email not confirmed')) {
+          throw new Error('📧 Check your email! Click the confirmation link we sent to ' + email + ', then log in.');
+        }
+        throw signInError;
       }
     }
     
-    // Create user profile in database
-    if (data.user) {
+    // Only create profile if we have a valid session
+    if (data.user && data.session) {
       try {
         const { error: profileError } = await supabase.from('profiles').upsert({
           id: data.user.id,

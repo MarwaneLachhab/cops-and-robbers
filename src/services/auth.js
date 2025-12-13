@@ -26,7 +26,12 @@ class AuthService {
       try {
         const data = await supabaseAuth.signUp(email, password, username);
         
-        if (data.user) {
+        // IMPORTANT: Only proceed if we have a valid session
+        if (!data.session) {
+          throw new Error('📧 Check your email! Click the confirmation link we sent, then come back and log in.');
+        }
+        
+        if (data.user && data.session) {
           const user = {
             id: data.user.id,
             username,
@@ -39,13 +44,13 @@ class AuthService {
             }
           };
           
-          // Save token if session exists
-          const token = data.session?.access_token || '';
-          console.log('Register - saving auth, token exists:', !!token);
+          // Save token - we know session exists here
+          const token = data.session.access_token;
+          console.log('Register - saving auth with valid session');
           this.setAuth(token, user);
           return { user, token };
         }
-        throw new Error('Registration failed');
+        throw new Error('Registration failed - no session received');
       } catch (error) {
         throw new Error(error.message || 'Registration failed');
       }
