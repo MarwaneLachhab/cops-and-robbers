@@ -146,14 +146,20 @@ export const supabaseAuth = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
 
-    // Try to get profile data (may not exist)
+    // Try to get profile data with timeout (may not exist)
     let profile = null;
     try {
-      const { data, error } = await supabase
+      const profilePromise = supabase
         .from('profiles')
         .select('*')
         .eq('id', user.id)
         .maybeSingle();
+      
+      const timeoutPromise = new Promise((resolve) => 
+        setTimeout(() => resolve({ data: null, error: 'timeout' }), 5000)
+      );
+      
+      const { data, error } = await Promise.race([profilePromise, timeoutPromise]);
       if (!error) profile = data;
     } catch (err) {
       console.warn('Could not fetch profile:', err.message);

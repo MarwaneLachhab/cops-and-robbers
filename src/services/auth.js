@@ -76,14 +76,40 @@ class AuthService {
   async login(username, password) {
     if (USE_SUPABASE) {
       try {
-        const data = await supabaseAuth.signIn(username, password);
+        // Add timeout to prevent infinite loading
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Login timeout - please try again')), 15000)
+        );
         
-        if (data.user) {
-          const fullUser = await supabaseAuth.getCurrentUser();
-          this.setAuth(data.session?.access_token || '', fullUser);
-          return { user: fullUser, token: data.session?.access_token };
-        }
-        throw new Error('Login failed');
+        const loginPromise = (async () => {
+          const data = await supabaseAuth.signIn(username, password);
+          
+          if (data.user) {
+            // Get user info with timeout protection
+            let fullUser;
+            try {
+              fullUser = await Promise.race([
+                supabaseAuth.getCurrentUser(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Profile fetch timeout')), 5000))
+              ]);
+            } catch (profileError) {
+              // If profile fetch fails, use basic user data
+              console.warn('Profile fetch failed, using basic data:', profileError.message);
+              fullUser = {
+                id: data.user.id,
+                email: data.user.email,
+                username: data.user.user_metadata?.username || data.user.email?.split('@')[0],
+                ranking: { points: 1000, tier: 'Bronze', winStreak: 0, bestWinStreak: 0 },
+                stats: { gamesPlayed: 0, gamesWon: 0, gamesLost: 0 }
+              };
+            }
+            this.setAuth(data.session?.access_token || '', fullUser);
+            return { user: fullUser, token: data.session?.access_token };
+          }
+          throw new Error('Login failed');
+        })();
+        
+        return await Promise.race([loginPromise, timeoutPromise]);
       } catch (error) {
         throw new Error(error.message || 'Invalid credentials');
       }
