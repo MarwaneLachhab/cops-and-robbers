@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import realtimeService from '../services/realtime';
-import { parsePlayers } from '../utils/parsers';
 import './OnlineGame.css';
 
 // Game constants
@@ -84,7 +83,7 @@ function OnlineGame({ room, user, onLeaveRoom }) {
 
   // Initialize
   useEffect(() => {
-    const roomPlayers = parsePlayers(room.players);
+    const roomPlayers = typeof room.players === 'string' ? JSON.parse(room.players) : (room.players || []);
     setPlayers(roomPlayers);
     setIsHost(user.id === room.host_id);
     
@@ -93,7 +92,8 @@ function OnlineGame({ room, user, onLeaveRoom }) {
 
     realtimeService.subscribeRoom(roomId, {
       onRoomUpdate: (updatedRoom) => {
-        const updatedPlayers = parsePlayers(updatedRoom.players);
+        const updatedPlayers = typeof updatedRoom.players === 'string'
+          ? JSON.parse(updatedRoom.players) : (updatedRoom.players || []);
         setPlayers(updatedPlayers);
         
         const me = updatedPlayers.find(p => p.id === user.id);
@@ -113,12 +113,10 @@ function OnlineGame({ room, user, onLeaveRoom }) {
         localGameState.current = state;
       },
       onGameStart: () => {
-        console.log('onGameStart received');
         setCountdown(null);
         setGameStatus('playing');
       },
       onGameEnd: (data) => {
-        console.log('onGameEnd received:', data);
         setWinner(data);
         setGameStatus('ended');
       },
@@ -137,43 +135,22 @@ function OnlineGame({ room, user, onLeaveRoom }) {
 
   const handleReady = async () => {
     const newReady = !isReady;
-    console.log('handleReady called, newReady:', newReady);
     setIsReady(newReady);
-    
-    // Update player ready status in DB
     await realtimeService.updatePlayer(roomId, user.id, { ready: newReady });
     
-    // Fetch the latest room data to check if both players are ready
-    const updatedRoom = await realtimeService.getRoom(roomId);
-    if (!updatedRoom) {
-      console.log('Failed to fetch room after ready update');
-      return;
-    }
-    
-    const updatedPlayers = parsePlayers(updatedRoom.players);
-    console.log('After ready update, players:', updatedPlayers);
+    const updatedPlayers = players.map(p => p.id === user.id ? { ...p, ready: newReady } : p);
     
     if (updatedPlayers.length === 2 && updatedPlayers.every(p => p.ready)) {
-      console.log('Both players ready!');
-      
-      // Assign roles if not already assigned
       if (!updatedPlayers[0].role) {
-        console.log('Assigning roles...');
         const roles = Math.random() > 0.5 ? ['cop', 'criminal'] : ['criminal', 'cop'];
         await realtimeService.updatePlayer(roomId, updatedPlayers[0].id, { role: roles[0] });
         await realtimeService.updatePlayer(roomId, updatedPlayers[1].id, { role: roles[1] });
       }
       
-      // Only host starts the game
       if (isHost) {
-        console.log('Host starting game...');
         await realtimeService.startGame(roomId);
         startGameCountdown();
-      } else {
-        console.log('Not host, waiting for host to start game');
       }
-    } else {
-      console.log('Not both ready yet', { total: updatedPlayers.length, readyCount: updatedPlayers.filter(p => p.ready).length });
     }
   };
 

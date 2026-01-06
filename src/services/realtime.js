@@ -1,7 +1,4 @@
 import { supabase } from './supabase';
-import { parsePlayers } from '../utils/parsers';
-
-// Removed duplicate parsePlayers function - now imported from utils
 
 class RealtimeService {
   constructor() {
@@ -12,7 +9,6 @@ class RealtimeService {
     this.listeners = new Map();
     this._isSubscribingLobby = false;
     this._onRoomsUpdate = null;
-    this._roomCallbacks = null; // Store room callbacks for manual updates
   }
 
   // Subscribe to lobby updates (room list)
@@ -213,9 +209,6 @@ class RealtimeService {
     if (updateError) {
       return { success: false, error: 'Failed to join room' };
     }
-    
-    // Manually trigger callback for the host since they may not receive realtime update
-    await this.refreshRoomUpdate(roomId);
 
     return { success: true, room: { ...room, players } };
   }
@@ -261,9 +254,6 @@ class RealtimeService {
     console.log('subscribeRoom: subscribing to room', roomId);
     this.currentRoom = roomId;
     
-    // Store callbacks for manual updates
-    this._roomCallbacks = callbacks;
-    
     // Store current room in localStorage for refresh persistence
     localStorage.setItem('currentRoomId', roomId);
 
@@ -279,7 +269,7 @@ class RealtimeService {
         console.log('Room UPDATE received:', payload.new?.id);
         if (callbacks.onRoomUpdate) {
           const room = payload.new;
-          room.players = parsePlayers(room.players);
+          room.players = JSON.parse(room.players || '[]');
           callbacks.onRoomUpdate(room);
         }
       })
@@ -357,17 +347,6 @@ class RealtimeService {
     
     return data;
   }
-  
-  // Manually trigger room update callback (for when realtime doesn't send update)
-  async refreshRoomUpdate(roomId) {
-    if (!this._roomCallbacks?.onRoomUpdate) return;
-    
-    const room = await this.getRoom(roomId);
-    if (room) {
-      room.players = parsePlayers(room.players);
-      this._roomCallbacks.onRoomUpdate(room);
-    }
-  }
 
   // Update player in room (role, ready status)
   async updatePlayer(roomId, userId, updates) {
@@ -390,33 +369,18 @@ class RealtimeService {
         .from('rooms')
         .update({ players: JSON.stringify(players) })
         .eq('id', roomId);
-      
-      // Manually trigger callback for the host since they may not receive realtime update
-      await this.refreshRoomUpdate(roomId);
     }
   }
 
   // Start game
   async startGame(roomId) {
-    if (!supabase) {
-      console.log('startGame: supabase not available');
-      return;
-    }
-    
-    console.log('startGame: updating room status to playing for room:', roomId);
+    if (!supabase) return;
 
-    const { error } = await supabase
+    await supabase
       .from('rooms')
       .update({ status: 'playing' })
       .eq('id', roomId);
-    
-    if (error) {
-      console.error('Error starting game:', error);
-      return;
-    }
 
-    console.log('startGame: room updated, broadcasting game-start');
-    
     // Broadcast game start
     if (this.roomChannel) {
       this.roomChannel.send({
@@ -424,9 +388,6 @@ class RealtimeService {
         event: 'game-start',
         payload: { roomId, timestamp: Date.now() }
       });
-      console.log('startGame: broadcast sent');
-    } else {
-      console.warn('startGame: roomChannel not available for broadcast');
     }
   }
 

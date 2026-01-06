@@ -5,7 +5,6 @@ import Lobby from './components/Lobby';
 import OnlineGame from './components/OnlineGame';
 import authService from './services/auth';
 import realtimeService from './services/realtime';
-import { parsePlayers } from './utils/parsers';
 import { supabase } from './services/supabase';
 import './App.css';
 
@@ -81,7 +80,7 @@ function App() {
               console.log('Found stored room, attempting to rejoin:', storedRoomId);
               const room = await realtimeService.getRoom(storedRoomId);
               if (room) {
-                const players = parsePlayers(room.players);
+                const players = JSON.parse(room.players || '[]');
                 const isInRoom = players.some(p => p.id === userData.id);
                 if (isInRoom && room.status !== 'ended') {
                   console.log('User still in room, restoring...');
