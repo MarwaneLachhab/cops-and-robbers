@@ -25,6 +25,7 @@ function App() {
   const authCheckDone = useRef(false);
   const authChangeProcessing = useRef(false);
   const subscriptionRef = useRef(null);
+  const timeoutRef = useRef(null);
 
   // Check for existing session on mount
   useEffect(() => {
@@ -34,32 +35,41 @@ function App() {
     
     let isMounted = true;
     
+    const clearAuthTimeout = () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    };
+    
     const checkAuth = async () => {
-      // Set a timeout to prevent infinite loading
-      const timeout = setTimeout(() => {
-        if (isMounted) {
+      // Set a timeout to prevent infinite loading - increased to 10 seconds
+      timeoutRef.current = setTimeout(() => {
+        if (isMounted && loading) {
           console.log('Auth check timeout - showing login');
           setLoading(false);
         }
-      }, 5000);
+      }, 10000);
       
       try {
         // First check Supabase session directly
         if (supabase) {
           const { data: { session } } = await supabase.auth.getSession();
           if (session && isMounted) {
+            console.log('Session found, fetching profile...');
             try {
               const userData = await authService.getProfile();
               if (userData && isMounted) {
+                console.log('Profile loaded, going to lobby');
                 setUser(userData);
                 setScreen(SCREENS.LOBBY);
+                clearAuthTimeout();
+                setLoading(false);
+                return;
               }
             } catch (profileError) {
               console.log('Profile fetch error:', profileError);
             }
-            clearTimeout(timeout);
-            if (isMounted) setLoading(false);
-            return;
           }
         }
         
@@ -83,7 +93,7 @@ function App() {
         localStorage.removeItem('token');
       }
       
-      clearTimeout(timeout);
+      clearAuthTimeout();
       if (isMounted) setLoading(false);
     };
 
@@ -92,27 +102,35 @@ function App() {
     // Listen for Supabase auth changes - only set up once
     if (supabase && !subscriptionRef.current) {
       const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
+        console.log('Auth state changed:', event, 'loading:', loading);
+        
         // Prevent duplicate processing
         if (authChangeProcessing.current) return;
         
-        // Only handle specific events, ignore TOKEN_REFRESHED to prevent loops
+        // Only handle specific events, ignore TOKEN_REFRESHED and INITIAL_SESSION to prevent loops
         if (event !== 'SIGNED_IN' && event !== 'SIGNED_OUT') {
           return;
         }
         
-        console.log('Auth state changed:', event);
         authChangeProcessing.current = true;
+        
+        // Clear the timeout since we got an auth event
+        clearAuthTimeout();
         
         try {
           if (event === 'SIGNED_IN' && session && isMounted) {
+            console.log('SIGNED_IN event, fetching profile...');
             const userData = await authService.getProfile();
             if (userData && isMounted) {
+              console.log('Profile loaded from auth event');
               setUser(userData);
               setScreen(SCREENS.LOBBY);
+              setLoading(false);
             }
           } else if (event === 'SIGNED_OUT' && isMounted) {
             setUser(null);
             setScreen(SCREENS.AUTH);
+            setLoading(false);
           }
         } catch (e) {
           console.log('Profile error on auth change:', e);
