@@ -9,6 +9,7 @@ class RealtimeService {
     this.listeners = new Map();
     this._isSubscribingLobby = false;
     this._onRoomsUpdate = null;
+    this._roomCallbacks = null; // Store room callbacks for manual updates
   }
 
   // Subscribe to lobby updates (room list)
@@ -209,6 +210,9 @@ class RealtimeService {
     if (updateError) {
       return { success: false, error: 'Failed to join room' };
     }
+    
+    // Manually trigger callback for the host since they may not receive realtime update
+    await this.refreshRoomUpdate(roomId);
 
     return { success: true, room: { ...room, players } };
   }
@@ -253,6 +257,9 @@ class RealtimeService {
 
     console.log('subscribeRoom: subscribing to room', roomId);
     this.currentRoom = roomId;
+    
+    // Store callbacks for manual updates
+    this._roomCallbacks = callbacks;
     
     // Store current room in localStorage for refresh persistence
     localStorage.setItem('currentRoomId', roomId);
@@ -347,6 +354,17 @@ class RealtimeService {
     
     return data;
   }
+  
+  // Manually trigger room update callback (for when realtime doesn't send update)
+  async refreshRoomUpdate(roomId) {
+    if (!this._roomCallbacks?.onRoomUpdate) return;
+    
+    const room = await this.getRoom(roomId);
+    if (room) {
+      room.players = JSON.parse(room.players || '[]');
+      this._roomCallbacks.onRoomUpdate(room);
+    }
+  }
 
   // Update player in room (role, ready status)
   async updatePlayer(roomId, userId, updates) {
@@ -369,6 +387,9 @@ class RealtimeService {
         .from('rooms')
         .update({ players: JSON.stringify(players) })
         .eq('id', roomId);
+      
+      // Manually trigger callback for the host since they may not receive realtime update
+      await this.refreshRoomUpdate(roomId);
     }
   }
 
