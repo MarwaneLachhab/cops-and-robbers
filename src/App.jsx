@@ -160,19 +160,30 @@ function App() {
           if (event === 'SIGNED_IN' && session && isMounted) {
             console.log('SIGNED_IN event, building user from session...');
             
+            // If we already have a user and are on a game screen, don't change anything
+            // This prevents tab-switching from kicking players out of rooms
+            if (user && (screen === SCREENS.ONLINE_GAME || screen === SCREENS.LOCAL_GAME)) {
+              console.log('Already in game, ignoring auth change');
+              return;
+            }
+            
             // Build user directly from session to avoid hanging on profile fetch
-            const user = session.user;
+            const sessionUser = session.user;
             const userData = {
-              id: user.id,
-              email: user.email,
-              username: user.user_metadata?.username || user.email?.split('@')[0] || 'Player',
+              id: sessionUser.id,
+              email: sessionUser.email,
+              username: sessionUser.user_metadata?.username || sessionUser.email?.split('@')[0] || 'Player',
               ranking: { points: 1000, tier: 'Bronze', winStreak: 0, bestWinStreak: 0 },
               stats: { gamesPlayed: 0, gamesWon: 0, gamesLost: 0 }
             };
             
             console.log('User built from session:', userData.username);
             setUser(userData);
-            setScreen(SCREENS.LOBBY);
+            
+            // Only change to lobby if we're on the auth screen
+            if (screen === SCREENS.AUTH) {
+              setScreen(SCREENS.LOBBY);
+            }
             setLoading(false);
             
             // Fetch full profile in background (don't block)
@@ -185,6 +196,8 @@ function App() {
             
           } else if (event === 'SIGNED_OUT' && isMounted) {
             setUser(null);
+            setCurrentRoom(null);
+            realtimeService.clearCurrentRoom();
             setScreen(SCREENS.AUTH);
             setLoading(false);
           }
