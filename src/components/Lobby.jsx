@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import realtimeService from '../services/realtime';
 import apiService from '../services/api';
+import { parsePlayers } from '../utils/parsers';
 import Social from './Social';
 import './Lobby.css';
 
@@ -38,8 +39,8 @@ function Lobby({ user, onJoinRoom, onCreateRoom, onLogout, onPlayLocal }) {
         mapName: room.map_name,
         isPrivate: room.is_private,
         status: room.status,
-        players: JSON.parse(room.players || '[]'),
-        playerCount: JSON.parse(room.players || '[]').length
+        players: parsePlayers(room.players),
+        playerCount: parsePlayers(room.players).length
       }));
       console.log('Setting rooms and loading=false');
       setRooms(formattedRooms);

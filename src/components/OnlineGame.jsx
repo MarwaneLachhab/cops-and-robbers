@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import realtimeService from '../services/realtime';
+import { parsePlayers } from '../utils/parsers';
 import './OnlineGame.css';
 
 // Game constants
@@ -83,7 +84,7 @@ function OnlineGame({ room, user, onLeaveRoom }) {
 
   // Initialize
   useEffect(() => {
-    const roomPlayers = typeof room.players === 'string' ? JSON.parse(room.players) : (room.players || []);
+    const roomPlayers = parsePlayers(room.players);
     setPlayers(roomPlayers);
     setIsHost(user.id === room.host_id);
     
@@ -92,8 +93,8 @@ function OnlineGame({ room, user, onLeaveRoom }) {
 
     realtimeService.subscribeRoom(roomId, {
       onRoomUpdate: (updatedRoom) => {
-        const updatedPlayers = typeof updatedRoom.players === 'string'
-          ? JSON.parse(updatedRoom.players) : (updatedRoom.players || []);
+        console.log('onRoomUpdate callback, players:', updatedRoom.players);
+        const updatedPlayers = parsePlayers(updatedRoom.players);
         setPlayers(updatedPlayers);
         
         const me = updatedPlayers.find(p => p.id === user.id);

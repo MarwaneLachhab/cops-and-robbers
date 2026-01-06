@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { parsePlayers } from '../utils/parsers';
 
 class RealtimeService {
   constructor() {
@@ -183,7 +184,7 @@ class RealtimeService {
     }
 
     // Check if room is full
-    const players = JSON.parse(room.players || '[]');
+    const players = parsePlayers(room.players);
     if (players.length >= 2) {
       return { success: false, error: 'Room is full' };
     }
@@ -225,7 +226,7 @@ class RealtimeService {
 
     if (!room) return;
 
-    const players = JSON.parse(room.players || '[]');
+    const players = parsePlayers(room.players);
     const newPlayers = players.filter(p => p.id !== userId);
 
     if (newPlayers.length === 0) {
@@ -269,7 +270,7 @@ class RealtimeService {
         console.log('Room UPDATE received:', payload.new?.id);
         if (callbacks.onRoomUpdate) {
           const room = payload.new;
-          room.players = JSON.parse(room.players || '[]');
+          room.players = parsePlayers(room.players);
           callbacks.onRoomUpdate(room);
         }
       })
@@ -360,7 +361,7 @@ class RealtimeService {
 
     if (!room) return;
 
-    const players = JSON.parse(room.players || '[]');
+    const players = parsePlayers(room.players);
     const playerIndex = players.findIndex(p => p.id === userId);
     
     if (playerIndex !== -1) {
