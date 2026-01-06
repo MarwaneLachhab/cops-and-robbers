@@ -260,7 +260,11 @@ class RealtimeService {
 
     // Real-time channel for room
     this.roomChannel = supabase
-      .channel(`room:${roomId}`)
+      .channel(`room:${roomId}`, {
+        config: {
+          broadcast: { self: true }  // Receive own broadcasts
+        }
+      })
       .on('postgres_changes', {
         event: 'UPDATE',
         schema: 'public',

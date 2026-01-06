@@ -124,9 +124,11 @@ function OnlineGame({ room, user, onLeaveRoom }) {
         onLeaveRoom();
       },
       onGameState: (state) => {
-        console.log('onGameState received, status:', state?.status, 'gameStatusRef:', gameStatusRef.current);
-        setGameState(state);
-        localGameState.current = state;
+        console.log('onGameState received, timeRemaining:', state?.timeRemaining, 'status:', state?.status);
+        // Create a new object to ensure React detects the change
+        const newState = { ...state };
+        setGameState(newState);
+        localGameState.current = newState;
         
         // If we receive a playing game state and we're not yet playing, transition
         if (state?.status === 'playing' && gameStatusRef.current !== 'playing' && gameStatusRef.current !== 'ended') {
@@ -255,7 +257,12 @@ function OnlineGame({ room, user, onLeaveRoom }) {
     
     gameLoopRef.current = setInterval(() => {
       if (localGameState.current?.status === 'playing') {
-        localGameState.current.timeRemaining -= 0.05;
+        // Create a new state object with updated time
+        const updatedState = {
+          ...localGameState.current,
+          timeRemaining: localGameState.current.timeRemaining - 0.05
+        };
+        localGameState.current = updatedState;
         checkWinConditions();
         realtimeService.broadcastGameState(localGameState.current);
       }
