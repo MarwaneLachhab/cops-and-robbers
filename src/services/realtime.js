@@ -8,24 +8,44 @@ class RealtimeService {
     this.currentRoom = null;
     this.listeners = new Map();
     this._isSubscribingLobby = false;
+    this._onRoomsUpdate = null;
   }
 
   // Subscribe to lobby updates (room list)
   async subscribeLobby(onRoomsUpdate) {
-    if (!supabase) return;
-    
-    // Prevent duplicate subscriptions
-    if (this._isSubscribingLobby || this.lobbyChannel) {
-      // If already subscribed, just fetch rooms
-      const rooms = await this.getRooms();
-      onRoomsUpdate(rooms);
+    if (!supabase) {
+      console.warn('Supabase not available');
       return;
+    }
+    
+    // Store callback for later use
+    this._onRoomsUpdate = onRoomsUpdate;
+    
+    // If already subscribing, just wait
+    if (this._isSubscribingLobby) {
+      return;
+    }
+    
+    // Clean up existing subscription first
+    if (this.lobbyChannel) {
+      try {
+        await supabase.removeChannel(this.lobbyChannel);
+      } catch (e) {
+        console.warn('Error removing old channel:', e);
+      }
+      this.lobbyChannel = null;
     }
     
     this._isSubscribingLobby = true;
 
     try {
-      // Subscribe to rooms table changes with unique channel name
+      // Initial fetch immediately
+      const rooms = await this.getRooms();
+      if (this._onRoomsUpdate) {
+        this._onRoomsUpdate(rooms);
+      }
+      
+      // Subscribe to rooms table changes
       const channelName = `lobby-${Date.now()}`;
       this.lobbyChannel = supabase
         .channel(channelName)
@@ -34,22 +54,25 @@ class RealtimeService {
           schema: 'public',
           table: 'rooms'
         }, async () => {
-          // Debounce room updates to prevent too many fetches
+          // Debounce room updates
           if (this._roomUpdateTimeout) {
             clearTimeout(this._roomUpdateTimeout);
           }
           this._roomUpdateTimeout = setTimeout(async () => {
-            const rooms = await this.getRooms();
-            onRoomsUpdate(rooms);
+            const updatedRooms = await this.getRooms();
+            if (this._onRoomsUpdate) {
+              this._onRoomsUpdate(updatedRooms);
+            }
           }, 300);
         })
         .subscribe((status) => {
           console.log('Lobby subscription status:', status);
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn('Channel error, will retry on next action');
+          }
         });
-
-      // Initial fetch
-      const rooms = await this.getRooms();
-      onRoomsUpdate(rooms);
+    } catch (error) {
+      console.error('Error subscribing to lobby:', error);
     } finally {
       this._isSubscribingLobby = false;
     }
@@ -60,11 +83,16 @@ class RealtimeService {
       clearTimeout(this._roomUpdateTimeout);
       this._roomUpdateTimeout = null;
     }
-    if (this.lobbyChannel) {
-      supabase.removeChannel(this.lobbyChannel);
+    if (this.lobbyChannel && supabase) {
+      try {
+        supabase.removeChannel(this.lobbyChannel);
+      } catch (e) {
+        console.warn('Error removing lobby channel:', e);
+      }
       this.lobbyChannel = null;
     }
     this._isSubscribingLobby = false;
+    this._onRoomsUpdate = null;
   }
 
   // Get all active rooms

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import realtimeService from '../services/realtime';
 import apiService from '../services/api';
 import Social from './Social';
@@ -18,17 +18,16 @@ function Lobby({ user, onJoinRoom, onCreateRoom, onLogout, onPlayLocal }) {
   const [activeTab, setActiveTab] = useState('rooms');
   const [loading, setLoading] = useState(true);
   const [showSocial, setShowSocial] = useState(false);
-  
-  // Refs to prevent duplicate subscriptions
-  const subscriptionDone = useRef(false);
 
   useEffect(() => {
-    // Prevent duplicate subscriptions
-    if (subscriptionDone.current) return;
-    subscriptionDone.current = true;
+    let isMounted = true;
+    
+    // Always unsubscribe first to ensure clean state
+    realtimeService.unsubscribeLobby();
     
     // Subscribe to lobby updates via Supabase Realtime
     realtimeService.subscribeLobby((roomsList) => {
+      if (!isMounted) return;
       // Transform rooms to expected format
       const formattedRooms = roomsList.map(room => ({
         id: room.id,
@@ -47,10 +46,10 @@ function Lobby({ user, onJoinRoom, onCreateRoom, onLogout, onPlayLocal }) {
     loadLeaderboard();
 
     return () => {
+      isMounted = false;
       realtimeService.unsubscribeLobby();
-      subscriptionDone.current = false;
     };
-  }, []);
+  }, [user?.id]); // Re-subscribe when user changes
 
   const loadLeaderboard = async () => {
     try {
