@@ -77,10 +77,16 @@ function OnlineGame({ room, user, onLeaveRoom }) {
   const keysPressed = useRef({});
   const gameLoopRef = useRef(null);
   const localGameState = useRef(null);
+  const gameStatusRef = useRef('waiting'); // Track game status for callbacks
 
   const roomId = room.id;
   const mapName = room.map_name || 'easy';
   const map = MAPS[mapName] || MAPS.easy;
+  
+  // Keep gameStatusRef in sync
+  useEffect(() => {
+    gameStatusRef.current = gameStatus;
+  }, [gameStatus]);
 
   // Initialize
   useEffect(() => {
@@ -93,14 +99,16 @@ function OnlineGame({ room, user, onLeaveRoom }) {
 
     realtimeService.subscribeRoom(roomId, {
       onRoomUpdate: (updatedRoom) => {
-        console.log('onRoomUpdate callback, players:', updatedRoom.players);
+        console.log('onRoomUpdate callback, players:', updatedRoom.players, 'status:', updatedRoom.status);
         const updatedPlayers = parsePlayers(updatedRoom.players);
         setPlayers(updatedPlayers);
         
         const me = updatedPlayers.find(p => p.id === user.id);
         if (me?.role) setMyRole(me.role);
         
-        if (updatedRoom.status === 'playing' && gameStatus === 'waiting') {
+        // Use ref to check current status (not stale closure)
+        if (updatedRoom.status === 'playing' && gameStatusRef.current === 'waiting') {
+          console.log('Room status is playing, starting countdown');
           startGameCountdown();
         }
       },
@@ -110,14 +118,19 @@ function OnlineGame({ room, user, onLeaveRoom }) {
         onLeaveRoom();
       },
       onGameState: (state) => {
+        console.log('onGameState received, status:', state?.status);
         setGameState(state);
         localGameState.current = state;
       },
       onGameStart: () => {
-        setCountdown(null);
-        setGameStatus('playing');
+        console.log('onGameStart received!');
+        // If we're waiting, start the countdown
+        if (gameStatusRef.current === 'waiting') {
+          startGameCountdown();
+        }
       },
       onGameEnd: (data) => {
+        console.log('onGameEnd received:', data);
         setWinner(data);
         setGameStatus('ended');
       },

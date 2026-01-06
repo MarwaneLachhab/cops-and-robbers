@@ -400,6 +400,8 @@ class RealtimeService {
         event: 'game-state',
         payload: gameState
       });
+    } else {
+      console.warn('Cannot broadcast game state - no room channel');
     }
   }
 
