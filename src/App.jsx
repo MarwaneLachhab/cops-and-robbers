@@ -27,6 +27,19 @@ function App() {
   const authChangeProcessing = useRef(false);
   const subscriptionRef = useRef(null);
   const timeoutRef = useRef(null);
+  
+  // Refs to track current screen/room for use in auth callback (to avoid stale closure)
+  const screenRef = useRef(screen);
+  const currentRoomRef = useRef(currentRoom);
+  
+  // Keep refs in sync with state
+  useEffect(() => {
+    screenRef.current = screen;
+  }, [screen]);
+  
+  useEffect(() => {
+    currentRoomRef.current = currentRoom;
+  }, [currentRoom]);
 
   // Check for existing session on mount
   useEffect(() => {
@@ -160,9 +173,10 @@ function App() {
           if (event === 'SIGNED_IN' && session && isMounted) {
             console.log('SIGNED_IN event, building user from session...');
             
-            // If we already have a user and are on a game screen, don't change anything
+            // If we already have a room and are on a game screen, don't change anything
             // This prevents tab-switching from kicking players out of rooms
-            if (user && (screen === SCREENS.ONLINE_GAME || screen === SCREENS.LOCAL_GAME)) {
+            // Use refs to get the current values (not stale closure values)
+            if (currentRoomRef.current && (screenRef.current === SCREENS.ONLINE_GAME || screenRef.current === SCREENS.LOCAL_GAME)) {
               console.log('Already in game, ignoring auth change');
               return;
             }
@@ -181,7 +195,7 @@ function App() {
             setUser(userData);
             
             // Only change to lobby if we're on the auth screen
-            if (screen === SCREENS.AUTH) {
+            if (screenRef.current === SCREENS.AUTH) {
               setScreen(SCREENS.LOBBY);
             }
             setLoading(false);
