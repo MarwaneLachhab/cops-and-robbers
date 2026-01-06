@@ -1,4 +1,7 @@
 import { supabase } from './supabase';
+import { parsePlayers } from '../utils/parsers';
+
+// Removed duplicate parsePlayers function - now imported from utils
 
 class RealtimeService {
   constructor() {
@@ -276,7 +279,7 @@ class RealtimeService {
         console.log('Room UPDATE received:', payload.new?.id);
         if (callbacks.onRoomUpdate) {
           const room = payload.new;
-          room.players = JSON.parse(room.players || '[]');
+          room.players = parsePlayers(room.players);
           callbacks.onRoomUpdate(room);
         }
       })
@@ -361,7 +364,7 @@ class RealtimeService {
     
     const room = await this.getRoom(roomId);
     if (room) {
-      room.players = JSON.parse(room.players || '[]');
+      room.players = parsePlayers(room.players);
       this._roomCallbacks.onRoomUpdate(room);
     }
   }
