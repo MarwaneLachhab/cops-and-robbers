@@ -398,13 +398,25 @@ class RealtimeService {
 
   // Start game
   async startGame(roomId) {
-    if (!supabase) return;
+    if (!supabase) {
+      console.log('startGame: supabase not available');
+      return;
+    }
+    
+    console.log('startGame: updating room status to playing for room:', roomId);
 
-    await supabase
+    const { error } = await supabase
       .from('rooms')
       .update({ status: 'playing' })
       .eq('id', roomId);
+    
+    if (error) {
+      console.error('Error starting game:', error);
+      return;
+    }
 
+    console.log('startGame: room updated, broadcasting game-start');
+    
     // Broadcast game start
     if (this.roomChannel) {
       this.roomChannel.send({
@@ -412,6 +424,9 @@ class RealtimeService {
         event: 'game-start',
         payload: { roomId, timestamp: Date.now() }
       });
+      console.log('startGame: broadcast sent');
+    } else {
+      console.warn('startGame: roomChannel not available for broadcast');
     }
   }
 

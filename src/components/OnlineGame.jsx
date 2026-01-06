@@ -113,10 +113,12 @@ function OnlineGame({ room, user, onLeaveRoom }) {
         localGameState.current = state;
       },
       onGameStart: () => {
+        console.log('onGameStart received');
         setCountdown(null);
         setGameStatus('playing');
       },
       onGameEnd: (data) => {
+        console.log('onGameEnd received:', data);
         setWinner(data);
         setGameStatus('ended');
       },
@@ -135,22 +137,43 @@ function OnlineGame({ room, user, onLeaveRoom }) {
 
   const handleReady = async () => {
     const newReady = !isReady;
+    console.log('handleReady called, newReady:', newReady);
     setIsReady(newReady);
+    
+    // Update player ready status in DB
     await realtimeService.updatePlayer(roomId, user.id, { ready: newReady });
     
-    const updatedPlayers = players.map(p => p.id === user.id ? { ...p, ready: newReady } : p);
+    // Fetch the latest room data to check if both players are ready
+    const updatedRoom = await realtimeService.getRoom(roomId);
+    if (!updatedRoom) {
+      console.log('Failed to fetch room after ready update');
+      return;
+    }
+    
+    const updatedPlayers = parsePlayers(updatedRoom.players);
+    console.log('After ready update, players:', updatedPlayers);
     
     if (updatedPlayers.length === 2 && updatedPlayers.every(p => p.ready)) {
+      console.log('Both players ready!');
+      
+      // Assign roles if not already assigned
       if (!updatedPlayers[0].role) {
+        console.log('Assigning roles...');
         const roles = Math.random() > 0.5 ? ['cop', 'criminal'] : ['criminal', 'cop'];
         await realtimeService.updatePlayer(roomId, updatedPlayers[0].id, { role: roles[0] });
         await realtimeService.updatePlayer(roomId, updatedPlayers[1].id, { role: roles[1] });
       }
       
+      // Only host starts the game
       if (isHost) {
+        console.log('Host starting game...');
         await realtimeService.startGame(roomId);
         startGameCountdown();
+      } else {
+        console.log('Not host, waiting for host to start game');
       }
+    } else {
+      console.log('Not both ready yet', { total: updatedPlayers.length, readyCount: updatedPlayers.filter(p => p.ready).length });
     }
   };
 
