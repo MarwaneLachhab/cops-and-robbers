@@ -78,15 +78,21 @@ function OnlineGame({ room, user, onLeaveRoom }) {
   const gameLoopRef = useRef(null);
   const localGameState = useRef(null);
   const gameStatusRef = useRef('waiting'); // Track game status for callbacks
+  const countdownStartedRef = useRef(false); // Prevent multiple countdowns
+  const isHostRef = useRef(false); // Track host status for callbacks
 
   const roomId = room.id;
   const mapName = room.map_name || 'easy';
   const map = MAPS[mapName] || MAPS.easy;
   
-  // Keep gameStatusRef in sync
+  // Keep refs in sync
   useEffect(() => {
     gameStatusRef.current = gameStatus;
   }, [gameStatus]);
+  
+  useEffect(() => {
+    isHostRef.current = isHost;
+  }, [isHost]);
 
   // Initialize
   useEffect(() => {
@@ -118,9 +124,21 @@ function OnlineGame({ room, user, onLeaveRoom }) {
         onLeaveRoom();
       },
       onGameState: (state) => {
-        console.log('onGameState received, status:', state?.status);
+        console.log('onGameState received, status:', state?.status, 'gameStatusRef:', gameStatusRef.current);
         setGameState(state);
         localGameState.current = state;
+        
+        // If we receive a playing game state and we're not yet playing, transition
+        if (state?.status === 'playing' && gameStatusRef.current !== 'playing' && gameStatusRef.current !== 'ended') {
+          console.log('Received playing game state, setting gameStatus to playing');
+          setGameStatus('playing');
+        }
+        
+        // Handle game end from game state
+        if (state?.status === 'ended' && gameStatusRef.current !== 'ended') {
+          setWinner(state.winner || { winner: 'unknown', reason: 'Game ended' });
+          setGameStatus('ended');
+        }
       },
       onGameStart: () => {
         console.log('onGameStart received!');
@@ -135,7 +153,8 @@ function OnlineGame({ room, user, onLeaveRoom }) {
         setGameStatus('ended');
       },
       onPlayerInput: (input) => {
-        if (isHost && localGameState.current) {
+        console.log('onPlayerInput received:', input, 'isHost:', isHostRef.current);
+        if (isHostRef.current && localGameState.current) {
           processPlayerInput(input);
         }
       }
@@ -193,6 +212,14 @@ function OnlineGame({ room, user, onLeaveRoom }) {
   };
 
   const startGameCountdown = () => {
+    // Prevent multiple countdown starts
+    if (countdownStartedRef.current) {
+      console.log('Countdown already started, ignoring');
+      return;
+    }
+    countdownStartedRef.current = true;
+    console.log('Starting countdown...');
+    
     setGameStatus('countdown');
     let count = 3;
     setCountdown(count);
@@ -203,8 +230,9 @@ function OnlineGame({ room, user, onLeaveRoom }) {
       if (count <= 0) {
         clearInterval(interval);
         setCountdown(null);
+        console.log('Countdown finished, setting status to playing');
         setGameStatus('playing');
-        if (isHost) initializeGame();
+        if (isHostRef.current) initializeGame();
       }
     }, 1000);
   };
@@ -260,7 +288,7 @@ function OnlineGame({ room, user, onLeaveRoom }) {
   };
 
   const checkWinConditions = () => {
-    if (!localGameState.current) return;
+    if (!localGameState.current || localGameState.current.status === 'ended') return;
     const { cop, criminal, coins, timeRemaining } = localGameState.current;
     
     if (cop.x === criminal.x && cop.y === criminal.y) { endGame('cop'); return; }
@@ -269,8 +297,15 @@ function OnlineGame({ room, user, onLeaveRoom }) {
   };
 
   const endGame = async (winnerRole) => {
+    // Prevent multiple calls
+    if (gameStatusRef.current === 'ended' || localGameState.current?.status === 'ended') {
+      console.log('endGame already called, ignoring');
+      return;
+    }
+    
+    console.log('Ending game, winner:', winnerRole);
     if (gameLoopRef.current) clearInterval(gameLoopRef.current);
-    localGameState.current.status = 'ended';
+    if (localGameState.current) localGameState.current.status = 'ended';
     
     const winnerPlayer = players.find(p => p.role === winnerRole);
     const winnerData = { role: winnerRole, username: winnerPlayer?.username || winnerRole };
@@ -283,7 +318,10 @@ function OnlineGame({ room, user, onLeaveRoom }) {
   // Keyboard
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (gameStatus !== 'playing') return;
+      if (gameStatus !== 'playing') {
+        console.log('Key pressed but gameStatus is:', gameStatus);
+        return;
+      }
       const key = e.key.toLowerCase();
       if (!keysPressed.current[key]) {
         keysPressed.current[key] = true;
@@ -294,6 +332,7 @@ function OnlineGame({ room, user, onLeaveRoom }) {
         if (key === 'arrowright' || key === 'd') dx = 1;
         
         if (dx !== 0 || dy !== 0) {
+          console.log('Sending input:', { dx, dy });
           realtimeService.sendPlayerInput({ playerId: user.id, dx, dy });
         }
       }
@@ -372,6 +411,7 @@ function OnlineGame({ room, user, onLeaveRoom }) {
     setGameStatus('waiting');
     setWinner(null);
     setIsReady(false);
+    countdownStartedRef.current = false; // Reset countdown flag
     if (gameLoopRef.current) clearInterval(gameLoopRef.current);
   };
 
