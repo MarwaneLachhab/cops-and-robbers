@@ -173,6 +173,7 @@ function App() {
         try {
           if (event === 'SIGNED_IN' && session && isMounted) {
             console.log('SIGNED_IN event, building user from session...');
+            console.log('Checking refs - currentRoom:', currentRoomRef.current?.id, 'screen:', screenRef.current);
             
             // If we already have a room and are on a game screen, don't change anything
             // This prevents tab-switching from kicking players out of rooms
