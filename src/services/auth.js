@@ -7,15 +7,23 @@ class AuthService {
   constructor() {
     this.token = localStorage.getItem('token');
     this.user = JSON.parse(localStorage.getItem('user') || 'null');
+    this._authListenerSetup = false;
     
-    // Listen for Supabase auth changes
-    if (USE_SUPABASE) {
+    // Listen for Supabase auth changes - but don't cause side effects that trigger re-renders
+    // The main App component handles auth state changes for UI updates
+    if (USE_SUPABASE && !this._authListenerSetup) {
+      this._authListenerSetup = true;
       supabaseAuth.onAuthStateChange((event, session) => {
+        // Only sync token, don't trigger other side effects
         if (event === 'SIGNED_IN' && session) {
           this.token = session.access_token;
           localStorage.setItem('token', session.access_token);
         } else if (event === 'SIGNED_OUT') {
-          this.clearAuth();
+          // Just clear local data, don't trigger UI updates from here
+          this.token = null;
+          this.user = null;
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
         }
       });
     }

@@ -7,36 +7,64 @@ class RealtimeService {
     this.lobbyChannel = null;
     this.currentRoom = null;
     this.listeners = new Map();
+    this._isSubscribingLobby = false;
   }
 
   // Subscribe to lobby updates (room list)
   async subscribeLobby(onRoomsUpdate) {
     if (!supabase) return;
+    
+    // Prevent duplicate subscriptions
+    if (this._isSubscribingLobby || this.lobbyChannel) {
+      // If already subscribed, just fetch rooms
+      const rooms = await this.getRooms();
+      onRoomsUpdate(rooms);
+      return;
+    }
+    
+    this._isSubscribingLobby = true;
 
-    // Subscribe to rooms table changes
-    this.lobbyChannel = supabase
-      .channel('lobby')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'rooms'
-      }, async () => {
-        // Fetch updated rooms list
-        const rooms = await this.getRooms();
-        onRoomsUpdate(rooms);
-      })
-      .subscribe();
+    try {
+      // Subscribe to rooms table changes with unique channel name
+      const channelName = `lobby-${Date.now()}`;
+      this.lobbyChannel = supabase
+        .channel(channelName)
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'rooms'
+        }, async () => {
+          // Debounce room updates to prevent too many fetches
+          if (this._roomUpdateTimeout) {
+            clearTimeout(this._roomUpdateTimeout);
+          }
+          this._roomUpdateTimeout = setTimeout(async () => {
+            const rooms = await this.getRooms();
+            onRoomsUpdate(rooms);
+          }, 300);
+        })
+        .subscribe((status) => {
+          console.log('Lobby subscription status:', status);
+        });
 
-    // Initial fetch
-    const rooms = await this.getRooms();
-    onRoomsUpdate(rooms);
+      // Initial fetch
+      const rooms = await this.getRooms();
+      onRoomsUpdate(rooms);
+    } finally {
+      this._isSubscribingLobby = false;
+    }
   }
 
   unsubscribeLobby() {
+    if (this._roomUpdateTimeout) {
+      clearTimeout(this._roomUpdateTimeout);
+      this._roomUpdateTimeout = null;
+    }
     if (this.lobbyChannel) {
       supabase.removeChannel(this.lobbyChannel);
       this.lobbyChannel = null;
     }
+    this._isSubscribingLobby = false;
   }
 
   // Get all active rooms

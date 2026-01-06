@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Game from './Game';
 import Auth from './components/Auth';
 import Lobby from './components/Lobby';
@@ -21,8 +21,17 @@ function App() {
   const [currentRoom, setCurrentRoom] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Refs to prevent duplicate operations
+  const authCheckDone = useRef(false);
+  const authChangeProcessing = useRef(false);
+  const subscriptionRef = useRef(null);
+
   // Check for existing session on mount
   useEffect(() => {
+    // Prevent running multiple times
+    if (authCheckDone.current) return;
+    authCheckDone.current = true;
+    
     let isMounted = true;
     
     const checkAuth = async () => {
@@ -44,7 +53,6 @@ function App() {
               if (userData && isMounted) {
                 setUser(userData);
                 setScreen(SCREENS.LOBBY);
-                // Supabase Realtime handles connections automatically
               }
             } catch (profileError) {
               console.log('Profile fetch error:', profileError);
@@ -63,7 +71,6 @@ function App() {
             if (userData && isMounted) {
               setUser(userData);
               setScreen(SCREENS.LOBBY);
-              // Supabase Realtime handles connections automatically
             } else {
               localStorage.removeItem('token');
             }
@@ -82,33 +89,46 @@ function App() {
 
     checkAuth();
     
-    // Listen for Supabase auth changes
-    let subscription = null;
-    if (supabase) {
+    // Listen for Supabase auth changes - only set up once
+    if (supabase && !subscriptionRef.current) {
       const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
+        // Prevent duplicate processing
+        if (authChangeProcessing.current) return;
+        
+        // Only handle specific events, ignore TOKEN_REFRESHED to prevent loops
+        if (event !== 'SIGNED_IN' && event !== 'SIGNED_OUT') {
+          return;
+        }
+        
         console.log('Auth state changed:', event);
-        if (event === 'SIGNED_IN' && session && isMounted) {
-          try {
+        authChangeProcessing.current = true;
+        
+        try {
+          if (event === 'SIGNED_IN' && session && isMounted) {
             const userData = await authService.getProfile();
             if (userData && isMounted) {
               setUser(userData);
               setScreen(SCREENS.LOBBY);
-              // Supabase Realtime handles connections automatically
             }
-          } catch (e) {
-            console.log('Profile error on auth change:', e);
+          } else if (event === 'SIGNED_OUT' && isMounted) {
+            setUser(null);
+            setScreen(SCREENS.AUTH);
           }
-        } else if (event === 'SIGNED_OUT' && isMounted) {
-          setUser(null);
-          setScreen(SCREENS.AUTH);
+        } catch (e) {
+          console.log('Profile error on auth change:', e);
+        } finally {
+          // Reset processing flag after a delay to debounce
+          setTimeout(() => {
+            authChangeProcessing.current = false;
+          }, 1000);
         }
       });
-      subscription = data.subscription;
+      subscriptionRef.current = data.subscription;
     }
     
     return () => {
       isMounted = false;
-      if (subscription) subscription.unsubscribe();
+      // Don't unsubscribe on every render, keep it alive
     };
   }, []);
 

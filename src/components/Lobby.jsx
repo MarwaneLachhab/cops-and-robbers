@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import realtimeService from '../services/realtime';
 import apiService from '../services/api';
 import Social from './Social';
@@ -18,8 +18,15 @@ function Lobby({ user, onJoinRoom, onCreateRoom, onLogout, onPlayLocal }) {
   const [activeTab, setActiveTab] = useState('rooms');
   const [loading, setLoading] = useState(true);
   const [showSocial, setShowSocial] = useState(false);
+  
+  // Refs to prevent duplicate subscriptions
+  const subscriptionDone = useRef(false);
 
   useEffect(() => {
+    // Prevent duplicate subscriptions
+    if (subscriptionDone.current) return;
+    subscriptionDone.current = true;
+    
     // Subscribe to lobby updates via Supabase Realtime
     realtimeService.subscribeLobby((roomsList) => {
       // Transform rooms to expected format
@@ -41,6 +48,7 @@ function Lobby({ user, onJoinRoom, onCreateRoom, onLogout, onPlayLocal }) {
 
     return () => {
       realtimeService.unsubscribeLobby();
+      subscriptionDone.current = false;
     };
   }, []);
 

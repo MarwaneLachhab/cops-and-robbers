@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../services/supabase';
 import './Social.css';
 
@@ -15,13 +15,17 @@ function Social({ user, onClose }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const messagesEndRef = useRef(null);
 
+  // Track if initial load has been done
+  const initialLoadDone = useRef(false);
+  
   useEffect(() => {
-    if (user) {
+    if (user && !initialLoadDone.current) {
+      initialLoadDone.current = true;
       loadFriends();
       loadPendingRequests();
       loadUnreadCount();
     }
-  }, [user]);
+  }, [user?.id]);
 
   useEffect(() => {
     if (selectedUser) {
@@ -35,31 +39,53 @@ function Social({ user, onClose }) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Real-time subscription for new messages
+  // Real-time subscription for new messages - use ref to prevent multiple subscriptions
+  const messageChannelRef = useRef(null);
+  const selectedUserRef = useRef(selectedUser);
+  
+  // Keep selectedUser ref in sync
+  useEffect(() => {
+    selectedUserRef.current = selectedUser;
+  }, [selectedUser]);
+  
   useEffect(() => {
     if (!user || !supabase) return;
+    
+    // Clean up existing channel before creating new one
+    if (messageChannelRef.current) {
+      supabase.removeChannel(messageChannelRef.current);
+      messageChannelRef.current = null;
+    }
 
-    const subscription = supabase
-      .channel('messages')
+    // Create unique channel name to avoid conflicts
+    const channelName = `messages-${user.id}-${Date.now()}`;
+    const channel = supabase
+      .channel(channelName)
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
         table: 'messages',
         filter: `receiver_id=eq.${user.id}`
       }, (payload) => {
-        if (selectedUser && payload.new.sender_id === selectedUser.id) {
+        const currentSelectedUser = selectedUserRef.current;
+        if (currentSelectedUser && payload.new.sender_id === currentSelectedUser.id) {
           setMessages(prev => [...prev, payload.new]);
-          markMessagesAsRead(selectedUser.id);
+          markMessagesAsRead(currentSelectedUser.id);
         } else {
           setUnreadCount(prev => prev + 1);
         }
       })
       .subscribe();
+    
+    messageChannelRef.current = channel;
 
     return () => {
-      subscription.unsubscribe();
+      if (messageChannelRef.current) {
+        supabase.removeChannel(messageChannelRef.current);
+        messageChannelRef.current = null;
+      }
     };
-  }, [user, selectedUser]);
+  }, [user?.id]); // Only re-subscribe when user changes, not selectedUser
 
   const loadFriends = async () => {
     if (!supabase) return;
