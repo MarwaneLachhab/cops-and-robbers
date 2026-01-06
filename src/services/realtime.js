@@ -18,16 +18,20 @@ class RealtimeService {
       return;
     }
     
+    console.log('subscribeLobby called');
+    
     // Store callback for later use
     this._onRoomsUpdate = onRoomsUpdate;
     
     // If already subscribing, just wait
     if (this._isSubscribingLobby) {
+      console.log('Already subscribing, skipping');
       return;
     }
     
     // Clean up existing subscription first
     if (this.lobbyChannel) {
+      console.log('Cleaning up existing channel');
       try {
         await supabase.removeChannel(this.lobbyChannel);
       } catch (e) {
@@ -40,13 +44,16 @@ class RealtimeService {
 
     try {
       // Initial fetch immediately
+      console.log('Fetching initial rooms...');
       const rooms = await this.getRooms();
+      console.log('Got rooms:', rooms.length, rooms);
       if (this._onRoomsUpdate) {
         this._onRoomsUpdate(rooms);
       }
       
       // Subscribe to rooms table changes
       const channelName = `lobby-${Date.now()}`;
+      console.log('Creating channel:', channelName);
       this.lobbyChannel = supabase
         .channel(channelName)
         .on('postgres_changes', {

@@ -21,12 +21,14 @@ function Lobby({ user, onJoinRoom, onCreateRoom, onLogout, onPlayLocal }) {
 
   useEffect(() => {
     let isMounted = true;
+    console.log('Lobby useEffect running, user:', user?.id);
     
     // Always unsubscribe first to ensure clean state
     realtimeService.unsubscribeLobby();
     
     // Subscribe to lobby updates via Supabase Realtime
     realtimeService.subscribeLobby((roomsList) => {
+      console.log('Lobby callback received rooms:', roomsList?.length, 'isMounted:', isMounted);
       if (!isMounted) return;
       // Transform rooms to expected format
       const formattedRooms = roomsList.map(room => ({
@@ -39,6 +41,7 @@ function Lobby({ user, onJoinRoom, onCreateRoom, onLogout, onPlayLocal }) {
         players: JSON.parse(room.players || '[]'),
         playerCount: JSON.parse(room.players || '[]').length
       }));
+      console.log('Setting rooms and loading=false');
       setRooms(formattedRooms);
       setLoading(false);
     });
@@ -46,6 +49,7 @@ function Lobby({ user, onJoinRoom, onCreateRoom, onLogout, onPlayLocal }) {
     loadLeaderboard();
 
     return () => {
+      console.log('Lobby cleanup');
       isMounted = false;
       realtimeService.unsubscribeLobby();
     };
