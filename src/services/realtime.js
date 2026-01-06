@@ -104,20 +104,31 @@ class RealtimeService {
 
   // Get all active rooms
   async getRooms() {
-    if (!supabase) return [];
-    
-    const { data, error } = await supabase
-      .from('rooms')
-      .select('*')
-      .in('status', ['waiting', 'playing'])
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching rooms:', error);
+    if (!supabase) {
+      console.log('getRooms: supabase not available');
       return [];
     }
+    
+    console.log('getRooms: starting query...');
+    try {
+      const { data, error } = await supabase
+        .from('rooms')
+        .select('*')
+        .in('status', ['waiting', 'playing'])
+        .order('created_at', { ascending: false });
 
-    return data || [];
+      console.log('getRooms: query complete, data:', data, 'error:', error);
+      
+      if (error) {
+        console.error('Error fetching rooms:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (e) {
+      console.error('getRooms exception:', e);
+      return [];
+    }
   }
 
   // Create a new room
