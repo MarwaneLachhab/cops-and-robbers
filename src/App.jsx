@@ -43,33 +43,46 @@ function App() {
     };
     
     const checkAuth = async () => {
-      // Set a timeout to prevent infinite loading - increased to 10 seconds
+      // Set a timeout to prevent infinite loading
       timeoutRef.current = setTimeout(() => {
         if (isMounted && loading) {
           console.log('Auth check timeout - showing login');
           setLoading(false);
         }
-      }, 10000);
+      }, 8000);
       
       try {
         // First check Supabase session directly
         if (supabase) {
           const { data: { session } } = await supabase.auth.getSession();
           if (session && isMounted) {
-            console.log('Session found, fetching profile...');
-            try {
-              const userData = await authService.getProfile();
-              if (userData && isMounted) {
-                console.log('Profile loaded, going to lobby');
-                setUser(userData);
-                setScreen(SCREENS.LOBBY);
-                clearAuthTimeout();
-                setLoading(false);
-                return;
+            console.log('Session found, building user...');
+            
+            // Build user directly from session (fast, no network call)
+            const user = session.user;
+            const userData = {
+              id: user.id,
+              email: user.email,
+              username: user.user_metadata?.username || user.email?.split('@')[0] || 'Player',
+              ranking: { points: 1000, tier: 'Bronze', winStreak: 0, bestWinStreak: 0 },
+              stats: { gamesPlayed: 0, gamesWon: 0, gamesLost: 0 }
+            };
+            
+            console.log('User built, going to lobby');
+            setUser(userData);
+            setScreen(SCREENS.LOBBY);
+            clearAuthTimeout();
+            setLoading(false);
+            
+            // Fetch full profile in background
+            authService.getProfile().then(profile => {
+              if (profile && isMounted) {
+                console.log('Full profile loaded in background');
+                setUser(profile);
               }
-            } catch (profileError) {
-              console.log('Profile fetch error:', profileError);
-            }
+            }).catch(err => console.warn('Background profile fetch failed:', err));
+            
+            return;
           }
         }
         
@@ -102,7 +115,7 @@ function App() {
     // Listen for Supabase auth changes - only set up once
     if (supabase && !subscriptionRef.current) {
       const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
-        console.log('Auth state changed:', event, 'loading:', loading);
+        console.log('Auth state changed:', event);
         
         // Prevent duplicate processing
         if (authChangeProcessing.current) return;
@@ -119,14 +132,31 @@ function App() {
         
         try {
           if (event === 'SIGNED_IN' && session && isMounted) {
-            console.log('SIGNED_IN event, fetching profile...');
-            const userData = await authService.getProfile();
-            if (userData && isMounted) {
-              console.log('Profile loaded from auth event');
-              setUser(userData);
-              setScreen(SCREENS.LOBBY);
-              setLoading(false);
-            }
+            console.log('SIGNED_IN event, building user from session...');
+            
+            // Build user directly from session to avoid hanging on profile fetch
+            const user = session.user;
+            const userData = {
+              id: user.id,
+              email: user.email,
+              username: user.user_metadata?.username || user.email?.split('@')[0] || 'Player',
+              ranking: { points: 1000, tier: 'Bronze', winStreak: 0, bestWinStreak: 0 },
+              stats: { gamesPlayed: 0, gamesWon: 0, gamesLost: 0 }
+            };
+            
+            console.log('User built from session:', userData.username);
+            setUser(userData);
+            setScreen(SCREENS.LOBBY);
+            setLoading(false);
+            
+            // Fetch full profile in background (don't block)
+            authService.getProfile().then(profile => {
+              if (profile && isMounted) {
+                console.log('Full profile loaded in background');
+                setUser(profile);
+              }
+            }).catch(err => console.warn('Background profile fetch failed:', err));
+            
           } else if (event === 'SIGNED_OUT' && isMounted) {
             setUser(null);
             setScreen(SCREENS.AUTH);
