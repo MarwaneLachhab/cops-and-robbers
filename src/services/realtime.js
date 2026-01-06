@@ -246,9 +246,16 @@ class RealtimeService {
 
   // Subscribe to a specific room for real-time updates
   subscribeRoom(roomId, callbacks) {
-    if (!supabase) return;
+    if (!supabase) {
+      console.log('subscribeRoom: supabase not available');
+      return;
+    }
 
+    console.log('subscribeRoom: subscribing to room', roomId);
     this.currentRoom = roomId;
+    
+    // Store current room in localStorage for refresh persistence
+    localStorage.setItem('currentRoomId', roomId);
 
     // Real-time channel for room
     this.roomChannel = supabase
@@ -259,6 +266,7 @@ class RealtimeService {
         table: 'rooms',
         filter: `id=eq.${roomId}`
       }, (payload) => {
+        console.log('Room UPDATE received:', payload.new?.id);
         if (callbacks.onRoomUpdate) {
           const room = payload.new;
           room.players = JSON.parse(room.players || '[]');
@@ -271,6 +279,8 @@ class RealtimeService {
         table: 'rooms',
         filter: `id=eq.${roomId}`
       }, () => {
+        console.log('Room DELETED');
+        localStorage.removeItem('currentRoomId');
         if (callbacks.onRoomDeleted) {
           callbacks.onRoomDeleted();
         }
@@ -295,15 +305,47 @@ class RealtimeService {
           callbacks.onPlayerInput(payload.payload);
         }
       })
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Room subscription status:', status);
+      });
   }
 
   unsubscribeRoom() {
-    if (this.roomChannel) {
+    console.log('unsubscribeRoom called');
+    if (this.roomChannel && supabase) {
       supabase.removeChannel(this.roomChannel);
       this.roomChannel = null;
     }
     this.currentRoom = null;
+    // Don't remove from localStorage here - only on explicit leave
+  }
+  
+  // Clear room from localStorage when explicitly leaving
+  clearCurrentRoom() {
+    localStorage.removeItem('currentRoomId');
+  }
+  
+  // Get stored room ID
+  getStoredRoomId() {
+    return localStorage.getItem('currentRoomId');
+  }
+  
+  // Fetch a room by ID
+  async getRoom(roomId) {
+    if (!supabase) return null;
+    
+    const { data, error } = await supabase
+      .from('rooms')
+      .select('*')
+      .eq('id', roomId)
+      .single();
+      
+    if (error) {
+      console.error('Error fetching room:', error);
+      return null;
+    }
+    
+    return data;
   }
 
   // Update player in room (role, ready status)

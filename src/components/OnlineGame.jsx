@@ -104,6 +104,7 @@ function OnlineGame({ room, user, onLeaveRoom }) {
         }
       },
       onRoomDeleted: () => {
+        realtimeService.clearCurrentRoom();
         alert('Room was closed');
         onLeaveRoom();
       },
@@ -325,6 +326,7 @@ function OnlineGame({ room, user, onLeaveRoom }) {
 
   const handleLeave = async () => {
     await realtimeService.leaveRoom(roomId, user.id);
+    realtimeService.clearCurrentRoom(); // Clear stored room
     onLeaveRoom();
   };
 

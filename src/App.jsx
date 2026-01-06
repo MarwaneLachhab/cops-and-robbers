@@ -4,6 +4,7 @@ import Auth from './components/Auth';
 import Lobby from './components/Lobby';
 import OnlineGame from './components/OnlineGame';
 import authService from './services/auth';
+import realtimeService from './services/realtime';
 import { supabase } from './services/supabase';
 import './App.css';
 
@@ -70,9 +71,34 @@ function App() {
             
             console.log('User built, going to lobby');
             setUser(userData);
-            setScreen(SCREENS.LOBBY);
             clearAuthTimeout();
             setLoading(false);
+            
+            // Check if user was in a room before refresh
+            const storedRoomId = realtimeService.getStoredRoomId();
+            if (storedRoomId) {
+              console.log('Found stored room, attempting to rejoin:', storedRoomId);
+              const room = await realtimeService.getRoom(storedRoomId);
+              if (room) {
+                const players = JSON.parse(room.players || '[]');
+                const isInRoom = players.some(p => p.id === userData.id);
+                if (isInRoom && room.status !== 'ended') {
+                  console.log('User still in room, restoring...');
+                  setCurrentRoom(room);
+                  setScreen(SCREENS.ONLINE_GAME);
+                } else {
+                  console.log('User not in room anymore, clearing stored room');
+                  realtimeService.clearCurrentRoom();
+                  setScreen(SCREENS.LOBBY);
+                }
+              } else {
+                console.log('Room no longer exists, clearing stored room');
+                realtimeService.clearCurrentRoom();
+                setScreen(SCREENS.LOBBY);
+              }
+            } else {
+              setScreen(SCREENS.LOBBY);
+            }
             
             // Fetch full profile in background
             authService.getProfile().then(profile => {
